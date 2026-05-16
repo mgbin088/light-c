@@ -74,8 +74,12 @@ export interface DeleteResult {
   success_count: number;
   /** 删除失败的文件数 */
   failed_count: number;
+  /** 标记为重启后删除的文件数 */
+  reboot_pending_count: number;
   /** 释放的空间大小（字节） */
   freed_size: number;
+  /** 是否需要重启完成清理 */
+  needs_reboot: boolean;
   /** 失败的文件列表及原因 */
   failed_files: DeleteError[];
 }

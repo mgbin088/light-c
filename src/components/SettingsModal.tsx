@@ -444,7 +444,7 @@ function FeatureSettings() {
                 [&::-webkit-slider-thumb]:hover:scale-110 [&::-webkit-slider-thumb]:transition-transform"
             />
             <div className="flex justify-between mt-1.5">
-              {[2, 3, 4, 5].map((n) => (
+              {[2, 3, 4].map((n) => (
                 <span
                   key={n}
                   className={`text-[10px] cursor-pointer transition-colors ${
@@ -466,7 +466,7 @@ function FeatureSettings() {
               <div>
                 <p className="text-sm font-medium text-[var(--text-primary)]">最低展示大小</p>
                 <p className="text-xs text-[var(--text-muted)] mt-1">
-                  低于此大小的目录不显示在结果列表中（减少噪音）
+                  低于此大小的目录不参与扫描（减少噪音）
                 </p>
               </div>
               <span className="text-sm font-semibold text-[var(--brand-green)] min-w-[3rem] text-right">

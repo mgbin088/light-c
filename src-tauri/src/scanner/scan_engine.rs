@@ -4,6 +4,7 @@
 // ============================================================================
 
 use log::{debug, info};
+use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -11,7 +12,7 @@ use std::thread;
 use std::time::Instant;
 use walkdir::WalkDir;
 
-use super::{CategoryScanResult, FileInfo, JunkCategory, ScanProgress, ScanResult};
+use super::{CategoryScanResult, FileInfo, JunkCategory, ScanResult};
 
 /// 扫描引擎
 pub struct ScanEngine {
@@ -107,11 +108,29 @@ impl ScanEngine {
         let scan_paths = category.get_scan_paths();
         let patterns = category.get_file_patterns();
 
+        // 收集所有解析后的路径，去重后再扫描
+        // 例如 %TEMP% 和 %TMP% 可能指向同一个目录，避免重复扫描
+        let mut unique_paths: HashSet<std::path::PathBuf> = HashSet::new();
+        let mut resolved_list: Vec<std::path::PathBuf> = Vec::new();
+
         for scan_path in scan_paths {
             for resolved_path in scan_path.resolve_all() {
-                debug!("扫描路径: {:?}", resolved_path);
-                self.scan_path(&resolved_path, category, &patterns, &mut result);
+                // 尝试规范化路径以消除符号链接、大小写等差异
+                let canonical = match std::fs::canonicalize(&resolved_path) {
+                    Ok(p) => p,
+                    Err(_) => resolved_path.clone(), // 规范化失败则使用原路径的克隆
+                };
+                if unique_paths.insert(canonical.clone()) {
+                    resolved_list.push(canonical);
+                } else {
+                    debug!("跳过重复路径: {:?}", resolved_path);
+                }
             }
+        }
+
+        for resolved_path in &resolved_list {
+            debug!("扫描路径: {:?}", resolved_path);
+            self.scan_path(resolved_path, category, &patterns, &mut result);
         }
 
         result
@@ -139,7 +158,7 @@ impl ScanEngine {
             return;
         }
 
-        // 遍历目录
+        // 遍历目录，只统计文件，跳过目录条目避免与文件重复计数
         let walker = WalkDir::new(path)
             .max_depth(self.max_depth)
             .follow_links(false)
@@ -151,6 +170,11 @@ impl ScanEngine {
 
             // 跳过根目录本身
             if entry_path == path {
+                continue;
+            }
+
+            // 只处理文件，跳过目录（避免 calculate_dir_size 与逐文件统计重复计数）
+            if !entry.file_type().is_file() {
                 continue;
             }
 
@@ -166,7 +190,7 @@ impl ScanEngine {
         }
     }
 
-    /// 获取文件信息
+    /// 获取文件信息（仅处理文件，目录已在 scan_path 中跳过）
     fn get_file_info(&self, path: &Path, category: &JunkCategory) -> Option<FileInfo> {
         let metadata = match fs::metadata(path) {
             Ok(m) => m,
@@ -181,12 +205,7 @@ impl ScanEngine {
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_else(|| "未知".to_string());
 
-        let size = if metadata.is_file() {
-            metadata.len()
-        } else {
-            // 对于目录，计算其总大小
-            self.calculate_dir_size(path)
-        };
+        let size = metadata.len();
 
         let modified_time = metadata
             .modified()
@@ -200,20 +219,9 @@ impl ScanEngine {
             name,
             size,
             modified_time,
-            metadata.is_dir(),
+            false, // 始终为文件，目录不会传入此函数
             category.clone(),
         ))
-    }
-
-    /// 计算目录大小
-    fn calculate_dir_size(&self, path: &Path) -> u64 {
-        WalkDir::new(path)
-            .into_iter()
-            .filter_map(|e| e.ok())
-            .filter(|e| e.file_type().is_file())
-            .filter_map(|e| e.metadata().ok())
-            .map(|m| m.len())
-            .sum()
     }
 
     /// 检查文件名是否匹配模式

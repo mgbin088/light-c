@@ -30,7 +30,7 @@ use serde::{Deserialize, Serialize};
 pub(crate) mod windows_api {
     use std::ptr;
 
-    // Windows API 常量
+    // MoveFileEx 标志
     pub const MOVEFILE_DELAY_UNTIL_REBOOT: u32 = 0x00000004;
     pub const MOVEFILE_REPLACE_EXISTING: u32 = 0x00000001;
 
@@ -38,6 +38,11 @@ pub(crate) mod windows_api {
     pub const FILE_ATTRIBUTE_READONLY: u32 = 0x00000001;
     pub const FILE_ATTRIBUTE_HIDDEN: u32 = 0x00000002;
     pub const FILE_ATTRIBUTE_SYSTEM: u32 = 0x00000004;
+
+    // SHEmptyRecycleBin 标志
+    pub const SHERB_NOCONFIRMATION: u32 = 0x00000001;
+    pub const SHERB_NOPROGRESSUI: u32 = 0x00000002;
+    pub const SHERB_NOSOUND: u32 = 0x00000004;
 
     #[link(name = "kernel32")]
     extern "system" {
@@ -73,6 +78,24 @@ pub(crate) mod windows_api {
             lpBytesPerSector: *mut u32,
             lpNumberOfFreeClusters: *mut u32,
             lpTotalNumberOfClusters: *mut u32,
+        ) -> i32;
+    }
+
+    #[link(name = "shell32")]
+    extern "system" {
+        /// 清空回收站（Windows Shell API）
+        ///
+        /// # 参数
+        /// - hwnd: 父窗口句柄，通常为 null
+        /// - pszRootPath: 指定驱动器根路径，null 表示清空所有驱动器的回收站
+        /// - dwFlags: 控制标志，组合使用 SHERB_NOCONFIRMATION | SHERB_NOPROGRESSUI | SHERB_NOSOUND
+        ///
+        /// # 返回值
+        /// S_OK (0) 表示成功，否则为 HRESULT 错误码
+        pub fn SHEmptyRecycleBinW(
+            hwnd: *const u16,
+            pszRootPath: *const u16,
+            dwFlags: u32,
         ) -> i32;
     }
 
@@ -165,6 +188,38 @@ pub(crate) mod windows_api {
                 Some(sectors_per_cluster * bytes_per_sector)
             } else {
                 None
+            }
+        }
+    }
+
+    /// 使用 Windows Shell API 清空回收站
+    ///
+    /// 这是清空回收站的正确方式，无需 SYSTEM 权限即可操作。
+    /// 直接删除 C:\$Recycle.Bin 下的文件会被系统拒绝（需要 SYSTEM 权限），
+    /// 也会留下元数据残留。而 SHEmptyRecycleBinW 走的是 Shell 标准流程。
+    ///
+    /// # 参数
+    /// - drive_root: 指定清空某个驱动器的回收站，传 None 清空所有驱动器
+    pub fn empty_recycle_bin(drive_root: Option<&str>) -> Result<(), String> {
+        let root_wide: Vec<u16>;
+        let root_ptr: *const u16;
+
+        if let Some(root) = drive_root {
+            root_wide = to_wide_string(root);
+            root_ptr = root_wide.as_ptr();
+        } else {
+            root_ptr = std::ptr::null();
+        }
+
+        let flags = SHERB_NOCONFIRMATION | SHERB_NOPROGRESSUI | SHERB_NOSOUND;
+
+        unsafe {
+            let hresult = SHEmptyRecycleBinW(std::ptr::null(), root_ptr, flags);
+            if hresult == 0 {
+                // S_OK
+                Ok(())
+            } else {
+                Err(format!("清空回收站失败，HRESULT: 0x{:08X}", hresult as u32))
             }
         }
     }
@@ -367,7 +422,7 @@ impl EnhancedDeleteEngine {
 
         Self {
             cluster_size,
-            enable_reboot_delete: false,  // 默认禁用，避免性能问题
+            enable_reboot_delete: true,  // 默认启用，处理被占用的文件
             enable_take_ownership: false, // 默认禁用，icacls 调用很慢
         }
     }
@@ -404,7 +459,58 @@ impl EnhancedDeleteEngine {
 
         info!("增强删除引擎：开始删除 {} 个文件", paths.len());
 
-        for path in paths {
+        // 分离回收站路径：回收站文件应通过 Shell API 清空，而非逐文件删除
+        // 直接删除 $Recycle.Bin 下的文件需要 SYSTEM 权限，SHEmptyRecycleBinW 是标准方式
+        let (recycle_paths, normal_paths): (Vec<&String>, Vec<&String>) = paths
+            .iter()
+            .partition(|p| p.to_lowercase().contains("\\$recycle.bin"));
+
+        // 对回收站路径，按驱动器分组，每个驱动器调用一次 Shell API
+        if !recycle_paths.is_empty() {
+            let mut drives_seen: std::collections::HashSet<String> =
+                std::collections::HashSet::new();
+            for path in &recycle_paths {
+                // 提取驱动器盘符，如 "C:" from "C:\$Recycle.Bin\..."
+                let drive = if path.len() >= 2 && path.as_bytes()[1] == b':' {
+                    path[..2].to_string()
+                } else {
+                    continue;
+                };
+                drives_seen.insert(drive);
+            }
+
+            for drive in &drives_seen {
+                let drive_root = format!("{}:\\", drive);
+                match windows_api::empty_recycle_bin(Some(&drive_root)) {
+                    Ok(_) => {
+                        info!("已通过 Shell API 清空 {} 回收站", drive_root);
+                    }
+                    Err(e) => {
+                        warn!("清空回收站失败 ({}): {}", drive_root, e);
+                    }
+                }
+            }
+
+            // 回收站文件标记为成功（Shell API 已处理）
+            for path in &recycle_paths {
+                let logical_size = self.get_file_size(Path::new(path));
+                let physical_size = self.calculate_physical_size(logical_size);
+                result.success_count += 1;
+                result.freed_logical_size += logical_size;
+                result.freed_physical_size += physical_size;
+                result.file_results.push(FileDeleteResult {
+                    path: (*path).clone(),
+                    success: true,
+                    logical_size,
+                    physical_size,
+                    failure_reason: None,
+                    marked_for_reboot: false,
+                });
+            }
+        }
+
+        // 正常文件逐文件删除
+        for path in normal_paths {
             let file_result = self.delete_single_file(path);
 
             match &file_result.failure_reason {

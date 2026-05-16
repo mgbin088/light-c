@@ -221,8 +221,12 @@ pub struct DeleteResult {
     pub success_count: usize,
     /// 删除失败的文件数
     pub failed_count: usize,
+    /// 标记为重启后删除的文件数
+    pub reboot_pending_count: usize,
     /// 释放的空间大小（字节）
     pub freed_size: u64,
+    /// 是否需要重启完成清理
+    pub needs_reboot: bool,
     /// 失败的文件列表及原因
     pub failed_files: Vec<DeleteError>,
 }
@@ -233,7 +237,9 @@ impl DeleteResult {
         DeleteResult {
             success_count: 0,
             failed_count: 0,
+            reboot_pending_count: 0,
             freed_size: 0,
+            needs_reboot: false,
             failed_files: Vec::new(),
         }
     }
@@ -242,6 +248,13 @@ impl DeleteResult {
     pub fn add_success(&mut self, size: u64) {
         self.success_count += 1;
         self.freed_size += size;
+    }
+
+    /// 记录重启后删除
+    pub fn add_reboot_pending(&mut self, size: u64) {
+        self.reboot_pending_count += 1;
+        self.needs_reboot = true;
+        self.freed_size += size; // 文件将在重启后删除，计入释放空间
     }
 
     /// 记录删除失败

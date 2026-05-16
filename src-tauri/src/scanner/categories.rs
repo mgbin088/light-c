@@ -203,7 +203,8 @@ impl JunkCategory {
                 ScanPath::fixed_path("C:\\$Windows.~WS"),
             ],
             JunkCategory::AppCache => vec![
-                ScanPath::env_path("LOCALAPPDATA", Some("Microsoft\\Windows\\INetCache\\IE")),
+                // INetCache\IE 与 BrowserCache 的 INetCache 路径重叠，
+                // 已在 SystemCache 中统一扫描，此处移除避免重复统计
                 ScanPath::env_path("LOCALAPPDATA", Some("Microsoft\\Windows\\WebCache")),
                 ScanPath::glob_path("LOCALAPPDATA", "Packages\\*\\LocalCache"),
             ],
@@ -219,12 +220,8 @@ impl JunkCategory {
                 ScanPath::fixed_path("C:\\Windows\\Installer\\$PatchCache$"),
                 // 下载的安装程序
                 ScanPath::env_path("LOCALAPPDATA", Some("Downloaded Installations")),
-                // NVIDIA 安装缓存
-                ScanPath::fixed_path("C:\\NVIDIA"),
-                // AMD 安装缓存
-                ScanPath::fixed_path("C:\\AMD"),
-                // Intel 安装缓存
-                ScanPath::fixed_path("C:\\Intel"),
+                // C:\NVIDIA、C:\AMD、C:\Intel 是用户主动保存的驱动安装包，
+                // 删除后可能导致用户无法回退驱动，不再纳入扫描范围
             ],
             JunkCategory::ClipboardCache => vec![ScanPath::env_path(
                 "LOCALAPPDATA",
