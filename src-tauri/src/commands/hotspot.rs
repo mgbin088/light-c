@@ -26,21 +26,29 @@ pub async fn scan_hotspot(
     app: tauri::AppHandle,
     top_n: Option<usize>,
     full_scan: Option<bool>,
+    max_depth: Option<usize>,
+    size_threshold_mb: Option<u64>,
 ) -> Result<crate::scanner::HotspotScanResult, String> {
     use crate::scanner::HotspotScanner;
 
     let n = top_n.unwrap_or(20);
     let is_full_scan = full_scan.unwrap_or(false);
+    let depth = max_depth.unwrap_or(3);
+    let threshold = size_threshold_mb
+        .map(|mb| mb * 1024 * 1024)
+        .unwrap_or(50 * 1024 * 1024);
 
     if is_full_scan {
-        info!("开始全盘深度扫描，Top {}", n);
+        info!("开始全盘深度扫描，Top {}，最大深度 {}，阈值 {}MB", n, depth, threshold / 1024 / 1024);
         crate::scanner::reset_hotspot_cancelled();
     } else {
         info!("开始扫描 AppData 目录，Top {}", n);
     }
 
     let result = tokio::task::spawn_blocking(move || {
-        let scanner = HotspotScanner::new(is_full_scan, n);
+        let scanner = HotspotScanner::new(is_full_scan, n)
+            .with_display_depth(depth)
+            .with_size_threshold(threshold);
         scanner.scan_with_ui(&app)
     })
     .await
@@ -52,7 +60,7 @@ pub async fn scan_hotspot(
                 "大目录扫描完成: {} 个目录，耗时 {}ms，扫描范围总大小 {} bytes，深度扫描: {}",
                 scan_result.entries.len(),
                 scan_result.scan_duration_ms,
-                scan_result.appdata_total_size,
+                scan_result.scanned_total_size,
                 scan_result.is_full_scan
             );
         }

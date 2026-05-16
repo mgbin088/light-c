@@ -11,7 +11,7 @@ import { listen } from '@tauri-apps/api/event';
 import { ModuleCard } from '../ModuleCard';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { useToast } from '../Toast';
-import { useDashboard } from '../../contexts/DashboardContext';
+import { useDashboard, useSettings } from '../../contexts';
 import { scanHotspot, cancelHotspotScan, openInFolder, cleanupDirectoryContents, type HotspotScanResult, type HotspotEntry, type HotspotScanProgress } from '../../api/commands';
 import { formatSize } from '../../utils/format';
 import { DrillDownModal } from './DrillDownModal';
@@ -117,11 +117,13 @@ function HotspotItem({ entry, rank, maxSize, isFullScan, onOpenFolder, onCleanup
   // 生成路径简写：父目录 > 子目录
   const displayName = parentName ? `${parentName} > ${entry.name}` : entry.name;
   
-  // 子目录缩进样式
-  const indentClass = isChild ? 'ml-6 border-l-2 border-[var(--border-color)] pl-3' : '';
-  
+  // 树形结构渐进缩进：每层递进 24px，最多展示 3 层
+  const indentStyle = treeDepth > 0
+    ? { paddingLeft: `${Math.min(treeDepth, 3) * 24}px`, borderLeft: '2px solid var(--border-color)' }
+    : {};
+
   return (
-    <div className={`${indentClass}`}>
+    <div style={indentStyle}>
       <div className={`group relative bg-[var(--bg-main)] rounded-xl p-3 hover:bg-[var(--bg-hover)] transition-colors ${
         entry.is_protected ? 'border border-red-200 dark:border-red-800/30' : ''
       } ${isChild ? 'bg-opacity-50' : ''}`}>
@@ -152,7 +154,7 @@ function HotspotItem({ entry, rank, maxSize, isFullScan, onOpenFolder, onCleanup
               {isChild ? displayName : entry.name}
             </span>
             {/* 下钻深度指示器 */}
-            {entry.depth > 0 && !isChild && (
+            {entry.depth > 0 && (
               <span className="flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded text-purple-500 bg-purple-50 dark:bg-purple-900/20">
                 L{entry.depth}
               </span>
@@ -220,8 +222,8 @@ function HotspotItem({ entry, rank, maxSize, isFullScan, onOpenFolder, onCleanup
           
           {/* 操作按钮组 */}
           <div className="flex items-center gap-1">
-            {/* 下钻按钮 - 在最末层子目录（无 children 且有 onDrillDown）时显示 */}
-            {onDrillDown && (!entry.children || entry.children.length === 0) && (
+            {/* 下钻按钮 — 始终显示，已展示3个子节点时用户可能还想继续探索 */}
+            {onDrillDown && (
               <button
                 onClick={(e) => {
                   e.stopPropagation();
@@ -276,8 +278,8 @@ function HotspotItem({ entry, rank, maxSize, isFullScan, onOpenFolder, onCleanup
       </div>
       </div>
       
-      {/* 递归渲染子目录（智能下钻结果） - 仅在 tree 模式前三级展示 */}
-      {entry.children && entry.children.length > 0 && (
+      {/* 递归渲染子目录 — 最多展示 3 层树形结构 */}
+      {treeDepth < 3 && entry.children && entry.children.length > 0 && (
         <div className="mt-1 space-y-1">
           {entry.children.map((child, idx) => (
             <HotspotItem
@@ -309,6 +311,7 @@ export function HotspotModule() {
   const { modules, expandedModule, setExpandedModule, updateModuleState, oneClickScanTrigger } = useDashboard();
   const moduleState = modules.hotspot;
   const { showToast } = useToast();
+  const { settings } = useSettings();
 
   const lastScanTriggerRef = useRef(0);
   const scanningRef = useRef(false);
@@ -385,7 +388,7 @@ export function HotspotModule() {
 
     try {
       // 根据深度扫描开关决定扫描模式
-      const result = await scanHotspot(30, fullScanEnabled);
+      const result = await scanHotspot(30, fullScanEnabled, settings.hotspotDepth, settings.hotspotSizeThreshold);
       setScanResult(result);
 
       // 计算 Top 10 的总大小作为模块显示
@@ -404,7 +407,7 @@ export function HotspotModule() {
       scanningRef.current = false;
       setScanProgress(null);
     }
-  }, [updateModuleState, fullScanEnabled]);
+  }, [updateModuleState, fullScanEnabled, settings]);
 
   // 取消扫描
   const handleStopScan = useCallback(async () => {
@@ -555,7 +558,7 @@ export function HotspotModule() {
                 </span>
                 <span className="shrink-0">
                   {scanProgress.total_first_level_dirs > 0
-                    ? `${Math.round((scanProgress.scanned_dirs / scanProgress.total_first_level_dirs) * 100)}%`
+                    ? `${Math.round((scanProgress.completed_roots / scanProgress.total_first_level_dirs) * 100)}%`
                     : ''}
                 </span>
               </div>
@@ -565,7 +568,7 @@ export function HotspotModule() {
                   className="h-full bg-[var(--brand-green)] rounded-full transition-all duration-300"
                   style={{
                     width: `${scanProgress.total_first_level_dirs > 0
-                      ? (scanProgress.scanned_dirs / scanProgress.total_first_level_dirs) * 100
+                      ? (scanProgress.completed_roots / scanProgress.total_first_level_dirs) * 100
                       : 0}%`
                   }}
                 />
@@ -610,7 +613,7 @@ export function HotspotModule() {
               <span>共扫描 <strong className="text-[var(--text-primary)]">{scanResult.total_folders_scanned}</strong> 个文件夹</span>
               <span>
                 {scanResult.is_full_scan ? 'C 盘' : 'AppData'} 总占用{' '}
-                <strong className="text-[var(--brand-green)]">{formatSize(scanResult.appdata_total_size)}</strong>
+                <strong className="text-[var(--brand-green)]">{formatSize(scanResult.scanned_total_size)}</strong>
               </span>
             </div>
             <span>耗时 {(scanResult.scan_duration_ms / 1000).toFixed(1)}s</span>

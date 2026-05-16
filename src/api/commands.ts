@@ -767,8 +767,8 @@ export interface HotspotScanResult {
   total_folders_scanned: number;
   /** 扫描耗时（毫秒） */
   scan_duration_ms: number;
-  /** 扫描范围总大小（AppData 或 C 盘） */
-  appdata_total_size: number;
+  /** 扫描范围总大小（AppData 或 C 盘总计） */
+  scanned_total_size: number;
   /** 是否为深度扫描模式 */
   is_full_scan: boolean;
 }
@@ -787,6 +787,8 @@ export interface HotspotScanProgress {
   total_size: number;
   /** 一级目录总数（用于进度百分比） */
   total_first_level_dirs: number;
+  /** 已完成的一级目录数（用于精确进度百分比） */
+  completed_roots: number;
 }
 
 /**
@@ -800,8 +802,13 @@ export interface HotspotScanProgress {
  * 【进度事件】深度扫描时监听 `hotspot-scan:progress` 获取实时进度，
  * `hotspot-scan:cancelled` 表示扫描被取消
  */
-export async function scanHotspot(topN?: number, fullScan?: boolean): Promise<HotspotScanResult> {
-  return invoke<HotspotScanResult>('scan_hotspot', { topN, fullScan });
+export async function scanHotspot(
+  topN?: number,
+  fullScan?: boolean,
+  maxDepth?: number,
+  sizeThresholdMb?: number,
+): Promise<HotspotScanResult> {
+  return invoke<HotspotScanResult>('scan_hotspot', { topN, fullScan, maxDepth, sizeThresholdMb });
 }
 
 /**

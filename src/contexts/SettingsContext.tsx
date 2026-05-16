@@ -8,6 +8,10 @@ import { createContext, useContext, useState, useCallback, type ReactNode } from
 interface AppSettings {
   /** 是否显示锚点导航 */
   showAnchorNav: boolean;
+  /** 大目录分析深度 (2-5，默认 3) */
+  hotspotDepth: number;
+  /** 大目录大小阈值 MB (10-500，默认 50) */
+  hotspotSizeThreshold: number;
 }
 
 interface SettingsContextValue {
@@ -24,6 +28,8 @@ const STORAGE_KEY = 'c-cleanup-settings';
 /** 默认设置 */
 const defaultSettings: AppSettings = {
   showAnchorNav: true, // 默认打开
+  hotspotDepth: 3,     // 默认分析深度 3 层
+  hotspotSizeThreshold: 50, // 默认 50MB
 };
 
 interface SettingsProviderProps {

@@ -4,7 +4,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Settings, MessageSquare, Info, Sun, Moon, Monitor, ExternalLink, RefreshCw, CheckCircle, BookOpen, Shield, AlertTriangle, Cpu, HardDrive, Monitor as MonitorIcon, User, Clock, Zap, FileBox, MessageCircle, Layers, Package, Database, Code2, FolderOpen, History, ChevronRight, MonitorCog, Coffee, Copy, MousePointerClick, ShieldCheck, Rocket, HelpCircle, ClipboardList, ShieldAlert, Navigation, Trash2 } from 'lucide-react';
+import { X, Settings, MessageSquare, Info, Sun, Moon, Monitor, ExternalLink, RefreshCw, CheckCircle, BookOpen, Shield, AlertTriangle, Cpu, HardDrive, Monitor as MonitorIcon, User, Clock, Zap, FileBox, MessageCircle, Layers, Package, Database, Code2, FolderOpen, History, ChevronRight, MonitorCog, Coffee, Copy, MousePointerClick, ShieldCheck, Rocket, HelpCircle, ClipboardList, ShieldAlert, Navigation, Trash2, SlidersHorizontal } from 'lucide-react';
 
 // 赞赏码图片
 import wechatQr from '../assets/r_wechat_qr.jpg';
@@ -16,7 +16,7 @@ import { getVersion } from '@tauri-apps/api/app';
 import { getSystemInfo, type SystemInfo, openLogsFolder, openStartupManager, openStorageSettings, getDataDirectory, setDataDirectory, clearLocalData, pickFolderDialog } from '../api/commands';
 import { formatSize } from '../utils/format';
 
-type SettingsTab = 'general' | 'security' | 'guide' | 'feedback' | 'about';
+type SettingsTab = 'general' | 'features' | 'guide' | 'feedback' | 'about';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -25,7 +25,7 @@ interface SettingsModalProps {
 
 const tabs: { id: SettingsTab; label: string; icon: typeof Settings }[] = [
   { id: 'general', label: '通用', icon: Settings },
-  { id: 'security', label: '安全与校验', icon: ShieldCheck },
+  { id: 'features', label: '功能设置', icon: SlidersHorizontal },
   { id: 'guide', label: '使用说明', icon: BookOpen },
   { id: 'feedback', label: '意见反馈', icon: MessageSquare },
   { id: 'about', label: '关于', icon: Info },
@@ -121,7 +121,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             {activeTab === 'general' && (
               <GeneralSettings mode={mode} setMode={setMode} />
             )}
-            {activeTab === 'security' && <SecuritySettings />}
+            {activeTab === 'features' && <FeatureSettings />}
             {activeTab === 'guide' && <GuideSettings />}
             {activeTab === 'feedback' && <FeedbackSettings />}
             {activeTab === 'about' && <AboutSettings />}
@@ -402,117 +402,147 @@ function GeneralSettings({ mode, setMode }: { mode: ThemeMode; setMode: (mode: T
 }
 
 // ============================================================================
-// 安全与校验设置 - 官方版本安全声明 + 一键校验工具
+// 功能设置 - 扫描参数配置（独立一级菜单）
 // ============================================================================
 
-function SecuritySettings() {
-  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
-
-  const fileName = `替换成安装包名`;
-  const commands = [
-    {
-      label: 'PowerShell (推荐)',
-      command: `Get-FileHash "${fileName}" -Algorithm SHA256`,
-    },
-    {
-      label: 'CMD',
-      command: `certutil -hashfile "${fileName}" SHA256`,
-    },
-  ];
-
-  const handleCopy = async (command: string, index: number) => {
-    try {
-      await navigator.clipboard.writeText(command);
-      setCopiedIndex(index);
-      setTimeout(() => setCopiedIndex(null), 2000);
-    } catch (error) {
-      console.error('复制失败:', error);
-    }
-  };
+function FeatureSettings() {
+  const { settings, updateSettings } = useSettings();
 
   return (
-    /* w-0 min-w-full 是防止子元素撑破 Flex 容器的黑科技 */
     <div className="flex flex-col w-0 min-w-full space-y-4 pb-2">
-
-      {/* 1. 风险声明卡片 */}
-      <div className="w-full bg-[var(--bg-main)] rounded-xl border border-[var(--border-color)] overflow-hidden">
-        <div className="p-3 bg-amber-500/5 border-b border-amber-500/10 flex items-start gap-2.5">
-          <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
-          <div className="text-xs text-amber-600/90 leading-relaxed">
-            非官方渠道版本可能包含<span className="font-bold">捆绑插件或后门程序</span>。请务必核对文件哈希值，确保您的系统安全。
-          </div>
-        </div>
-
-        <div className="p-3 space-y-2">
-          <div className="flex items-center gap-2 text-xs font-medium text-[var(--text-primary)]">
-            <CheckCircle className="w-3.5 h-3.5 text-[var(--brand-green)]" />
-            官方正版标识
-          </div>
-          <div className="pl-6 space-y-1.5 text-xs text-[var(--text-muted)]">
-            <p className="flex items-center gap-1">
-              源码及发布:
-              <a href="https://github.com/Chunyu33/light-c" target="_blank" className="text-[var(--brand-green)] hover:underline inline-flex items-center">
-                GitHub <ExternalLink className="w-2.5 h-2.5 ml-0.5" />
-              </a>
+      {/* 大目录分析 */}
+      <div className="space-y-3">
+        <h4 className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider flex items-center gap-2">
+          <HardDrive className="w-3.5 h-3.5" />
+          大目录分析
+        </h4>
+        <div className="bg-[var(--bg-main)] rounded-2xl p-5 space-y-6">
+          {/* 分析深度 */}
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <p className="text-sm font-medium text-[var(--text-primary)]">分析深度</p>
+                <p className="text-xs text-[var(--text-muted)] mt-1">
+                  向下钻取的目录层数（值越大可发现更深层热点，但扫描耗时更长）
+                </p>
+              </div>
+              <span className="text-sm font-semibold text-[var(--brand-green)] min-w-[2rem] text-right">
+                {settings.hotspotDepth} 层
+              </span>
+            </div>
+            <input
+              type="range"
+              min={2}
+              max={5}
+              step={1}
+              value={settings.hotspotDepth}
+              onChange={(e) => updateSettings({ hotspotDepth: Number(e.target.value) })}
+              className="w-full h-2 bg-[var(--bg-card)] rounded-full appearance-none cursor-pointer
+                [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5
+                [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-[var(--brand-green)]
+                [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:cursor-pointer
+                [&::-webkit-slider-thumb]:hover:scale-110 [&::-webkit-slider-thumb]:transition-transform"
+            />
+            <div className="flex justify-between mt-1.5">
+              {[2, 3, 4, 5].map((n) => (
+                <span
+                  key={n}
+                  className={`text-[10px] cursor-pointer transition-colors ${
+                    settings.hotspotDepth === n
+                      ? 'text-[var(--brand-green)] font-semibold'
+                      : 'text-[var(--text-faint)] hover:text-[var(--text-muted)]'
+                  }`}
+                  onClick={() => updateSettings({ hotspotDepth: n })}
+                >
+                  {n}层
+                </span>
+              ))}
+            </div>
+            <p className="text-[10px] text-[var(--text-faint)] mt-2 leading-relaxed">
+              默认 3 层适合大多数场景。仅扫描 AppData 时建议 2~3 层，全盘扫描时可适当增加到 4~5 层。
             </p>
-            <p>作者动态: <a className="text-[var(--brand-green)]" href='https://space.bilibili.com/387797235' target='_blank'>B站 @Evan的像素空间</a></p>
+          </div>
+
+          {/* 大小阈值 */}
+          <div className="pt-4 border-t border-[var(--border-color)]">
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <p className="text-sm font-medium text-[var(--text-primary)]">最低展示大小</p>
+                <p className="text-xs text-[var(--text-muted)] mt-1">
+                  低于此大小的目录不显示在结果列表中（减少噪音）
+                </p>
+              </div>
+              <span className="text-sm font-semibold text-[var(--brand-green)] min-w-[3rem] text-right">
+                {settings.hotspotSizeThreshold} MB
+              </span>
+            </div>
+            <input
+              type="range"
+              min={10}
+              max={500}
+              step={10}
+              value={settings.hotspotSizeThreshold}
+              onChange={(e) => updateSettings({ hotspotSizeThreshold: Number(e.target.value) })}
+              className="w-full h-2 bg-[var(--bg-card)] rounded-full appearance-none cursor-pointer
+                [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5
+                [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-[var(--brand-green)]
+                [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:cursor-pointer
+                [&::-webkit-slider-thumb]:hover:scale-110 [&::-webkit-slider-thumb]:transition-transform"
+            />
+            <div className="flex justify-between mt-1.5">
+              {[10, 50, 100, 200, 500].map((n) => (
+                <span
+                  key={n}
+                  className={`text-[10px] cursor-pointer transition-colors ${
+                    settings.hotspotSizeThreshold === n
+                      ? 'text-[var(--brand-green)] font-semibold'
+                      : 'text-[var(--text-faint)] hover:text-[var(--text-muted)]'
+                  }`}
+                  onClick={() => updateSettings({ hotspotSizeThreshold: n })}
+                >
+                  {n >= 1000 ? `${n / 1000}GB` : `${n}MB`}
+                </span>
+              ))}
+            </div>
+            <p className="text-[10px] text-[var(--text-faint)] mt-2 leading-relaxed">
+              默认 50MB。如果结果太少，可降低到 10MB；如果想只看大目录，可提高到 100MB 以上。
+            </p>
           </div>
         </div>
       </div>
 
-      {/* 2. 校验命令区 */}
-      <div className="space-y-2.5">
-        <h4 className="text-xs font-bold text-[var(--text-muted)] uppercase tracking-widest px-1">
-          HASH 完整性校验
+      {/* 系统目录跳过说明 */}
+      <div className="space-y-3">
+        <h4 className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider flex items-center gap-2">
+          <Shield className="w-3.5 h-3.5" />
+          自动忽略的目录
         </h4>
-
-        <div className="bg-[var(--bg-main)] rounded-xl border border-[var(--border-color)] p-3 space-y-4">
-          {commands.map((cmd, index) => (
-            <div key={index} className="space-y-1.5">
-              <div className="flex items-center justify-between px-0.5">
-                <span className="text-xs font-semibold text-[var(--text-secondary)]">{cmd.label}</span>
-                <button
-                  onClick={() => handleCopy(cmd.command, index)}
-                  className="text-xs text-[var(--brand-green)] hover:opacity-70 transition-all flex items-center gap-1 shrink-0"
-                >
-                  {copiedIndex === index ? (
-                    <><CheckCircle className="w-2.5 h-2.5" /> 已复制</>
-                  ) : (
-                    <><Copy className="w-2.5 h-2.5" /> 复制指令</>
-                  )}
-                </button>
-              </div>
-
-              {/* 命令显示区：强制横向滚动，防止撑开宽度 */}
-              <div className="w-full bg-[var(--bg-card)] border border-[var(--border-color)] rounded-lg p-2 overflow-x-auto scrollbar-thin">
-                <code className="text-xs font-mono text-[var(--brand-green)] whitespace-nowrap block">
-                  {cmd.command}
-                </code>
-              </div>
-            </div>
-          ))}
-
-          {/* 底部小字说明 */}
-          <div className="pt-2 border-t border-[var(--border-color)]">
-            <div className="flex items-start gap-2 text-xs text-[var(--text-faint)] leading-relaxed">
-              <Info className="w-3.5 h-3.5 mt-0.5 shrink-0 text-[var(--brand-green)]" />
-              <div className="space-y-1">
-                <p className="text-[var(--text-secondary)] font-medium">如何进行校验？</p>
-                <p className="break-all">
-                  1. 在安装包所在文件夹，<span className="text-[var(--text-primary)]">按住 Shift 键</span>并右键点击空白处。
-                </p>
-                <p>
-                  2. 选择 <span className="text-[var(--text-primary)]">“在此处打开 PowerShell/终端”</span>。
-                </p>
-                <p>
-                  3. 粘贴上方复制的指令并回车，对比结果是否与<a href='https://github.com/Chunyu33/light-c/releases' 
-                  className="text-[var(--brand-green)] hover:underline inline-flex items-center"
-                  target='_blank' rel='noopener noreferrer'>官方Releases</a>的 <span className="font-mono text-[var(--brand-green)]">SHA256SUMS.txt</span> 一致。
-                </p>
-              </div>
-            </div>
+        <div className="bg-[var(--bg-main)] rounded-2xl p-5">
+          <p className="text-xs text-[var(--text-secondary)] leading-relaxed mb-3">
+            以下目录在扫描时会被自动跳过或标记为保护，不会出现在清理候选列表中：
+          </p>
+          <div className="space-y-1.5 text-xs text-[var(--text-muted)]">
+            <p className="flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-red-400 shrink-0" />
+              C:\Windows — 系统核心目录，删除会导致系统崩溃
+            </p>
+            <p className="flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-red-400 shrink-0" />
+              Program Files / Program Files (x86) — 软件安装目录，仅查看不清理
+            </p>
+            <p className="flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
+              WinSxS / System32 / SysWOW64 — Windows 组件存储，由系统管理
+            </p>
+            <p className="flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-gray-400 shrink-0" />
+              $Recycle.Bin / System Volume Information — 系统保留目录
+            </p>
+            <p className="flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-gray-400 shrink-0" />
+              DriverStore / WindowsApps / assembly — 驱动和应用商店缓存
+            </p>
           </div>
-
         </div>
       </div>
     </div>
@@ -637,6 +667,10 @@ function GuideSettings() {
               <span className="text-[var(--brand-green)] font-medium">无限下钻弹窗：</span>点击目录条目右侧的 <span className="font-medium">▶</span> 按钮，
               将弹出<span className="text-[var(--brand-green)] font-medium">沉浸式下钻模态框</span>，支持无限层级深入探索子目录结构。
               弹窗顶部显示完整路径面包屑导航，可快速回溯到任意层级；按 <span className="font-medium">ESC</span> 键可快速关闭弹窗。
+            </p>
+            <p className="text-xs text-[var(--text-muted)] leading-relaxed pl-6 mt-2">
+              <span className="text-[var(--color-danger)] font-medium">系统保护：</span>扫描会自动跳过 <span className="font-medium">C:\Windows</span>、<span className="font-medium">$Recycle.Bin</span>、<span className="font-medium">System Volume Information</span> 等系统级目录，
+              并将 <span className="font-medium">WinSxS</span>、<span className="font-medium">System32</span>、<span className="font-medium">DriverStore</span> 等标记为"不可操作"保护目录。这些目录由系统管理，用户无法安全清理，因此不参与排行榜竞争。
             </p>
           </div>
           <div>

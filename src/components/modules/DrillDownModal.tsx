@@ -551,7 +551,7 @@ export function DrillDownModal({ initialPath, onClose, onCleanupDone }: DrillDow
           <div className="flex items-center justify-between px-5 py-2.5 border-t border-[var(--border-default)] text-xs text-[var(--text-muted)] bg-[var(--bg-card)]/80 backdrop-blur-sm">
             <span>
               共 <strong className="text-[var(--text-primary)]">{scanResult.entries.length}</strong> 个子目录，
-              总计 <strong className="text-[var(--brand-green)]">{formatSize(scanResult.appdata_total_size)}</strong>
+              总计 <strong className="text-[var(--brand-green)]">{formatSize(scanResult.scanned_total_size)}</strong>
             </span>
             <span>耗时 {(scanResult.scan_duration_ms / 1000).toFixed(1)}s</span>
           </div>

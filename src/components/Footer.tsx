@@ -3,8 +3,6 @@
 // 增强用户正版渠道意识，防止第三方篡改分发
 // ============================================================================
 
-import { Shield } from 'lucide-react';
-
 export function Footer() {
   const currentYear = new Date().getFullYear();
 
@@ -13,7 +11,7 @@ export function Footer() {
       <div className="max-w-5xl mx-auto flex flex-col items-center gap-3">
         {/* 版权信息 */}
         <p className="text-[11px] text-[var(--text-muted)]">
-          © {currentYear} LightC · Evan Lau · All rights reserved.
+          © {currentYear} LightC · All rights reserved.
         </p>
 
         {/* 正版渠道提示 */}
