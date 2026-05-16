@@ -387,8 +387,9 @@ export function HotspotModule() {
     setScanProgress(null);
 
     try {
-      // 根据深度扫描开关决定扫描模式
-      const result = await scanHotspot(30, fullScanEnabled, settings.hotspotDepth, settings.hotspotSizeThreshold);
+      // 根据深度扫描开关决定扫描模式（全盘扫描条目更多）
+      const topN = fullScanEnabled ? 80 : 50;
+      const result = await scanHotspot(topN, fullScanEnabled, settings.hotspotDepth, settings.hotspotSizeThreshold);
       setScanResult(result);
 
       // 计算 Top 10 的总大小作为模块显示

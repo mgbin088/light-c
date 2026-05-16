@@ -421,9 +421,9 @@ function FeatureSettings() {
           <div>
             <div className="flex items-center justify-between mb-3">
               <div>
-                <p className="text-sm font-medium text-[var(--text-primary)]">分析深度</p>
+                <p className="text-sm font-medium text-[var(--text-primary)]">展示深度</p>
                 <p className="text-xs text-[var(--text-muted)] mt-1">
-                  向下钻取的目录层数（值越大可发现更深层热点，但扫描耗时更长）
+                  结果列表中展示的目录层数（实际扫描深度固定为 6 层以确保覆盖率）
                 </p>
               </div>
               <span className="text-sm font-semibold text-[var(--brand-green)] min-w-[2rem] text-right">
@@ -458,9 +458,6 @@ function FeatureSettings() {
                 </span>
               ))}
             </div>
-            <p className="text-[10px] text-[var(--text-faint)] mt-2 leading-relaxed">
-              默认 3 层适合大多数场景。仅扫描 AppData 时建议 2~3 层，全盘扫描时可适当增加到 4~5 层。
-            </p>
           </div>
 
           {/* 大小阈值 */}
@@ -504,44 +501,39 @@ function FeatureSettings() {
                 </span>
               ))}
             </div>
-            <p className="text-[10px] text-[var(--text-faint)] mt-2 leading-relaxed">
-              默认 50MB。如果结果太少，可降低到 10MB；如果想只看大目录，可提高到 100MB 以上。
-            </p>
           </div>
-        </div>
-      </div>
 
-      {/* 系统目录跳过说明 */}
-      <div className="space-y-3">
-        <h4 className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider flex items-center gap-2">
-          <Shield className="w-3.5 h-3.5" />
-          自动忽略的目录
-        </h4>
-        <div className="bg-[var(--bg-main)] rounded-2xl p-5">
-          <p className="text-xs text-[var(--text-secondary)] leading-relaxed mb-3">
-            以下目录在扫描时会被自动跳过或标记为保护，不会出现在清理候选列表中：
-          </p>
-          <div className="space-y-1.5 text-xs text-[var(--text-muted)]">
-            <p className="flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-red-400 shrink-0" />
-              C:\Windows — 系统核心目录，删除会导致系统崩溃
+          {/* 自动忽略的目录说明 */}
+          <div className="pt-4 border-t border-[var(--border-color)]">
+            <p className="text-sm font-medium text-[var(--text-primary)] mb-3 flex items-center gap-1.5">
+              <Shield className="w-3.5 h-3.5" />
+              自动忽略的目录
             </p>
-            <p className="flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-red-400 shrink-0" />
-              Program Files / Program Files (x86) — 软件安装目录，仅查看不清理
+            <p className="text-xs text-[var(--text-muted)] leading-relaxed mb-2">
+              以下目录扫描时自动跳过或标记为保护，不会出现在清理候选列表中：
             </p>
-            <p className="flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
-              WinSxS / System32 / SysWOW64 — Windows 组件存储，由系统管理
-            </p>
-            <p className="flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-gray-400 shrink-0" />
-              $Recycle.Bin / System Volume Information — 系统保留目录
-            </p>
-            <p className="flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-gray-400 shrink-0" />
-              DriverStore / WindowsApps / assembly — 驱动和应用商店缓存
-            </p>
+            <div className="space-y-1 text-[11px] text-[var(--text-muted)]">
+              <p className="flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-red-400 shrink-0" />
+                C:\Windows — 系统核心目录，删除会导致系统崩溃
+              </p>
+              <p className="flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-red-400 shrink-0" />
+                Program Files / Program Files (x86) — 软件安装目录，仅查看不清理
+              </p>
+              <p className="flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
+                WinSxS / System32 / SysWOW64 — Windows 组件存储，由系统管理
+              </p>
+              <p className="flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-gray-400 shrink-0" />
+                $Recycle.Bin / System Volume Information — 系统保留目录
+              </p>
+              <p className="flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-gray-400 shrink-0" />
+                DriverStore / WindowsApps / assembly — 驱动和应用商店缓存
+              </p>
+            </div>
           </div>
         </div>
       </div>

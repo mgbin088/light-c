@@ -31,8 +31,8 @@ pub async fn scan_hotspot(
 ) -> Result<crate::scanner::HotspotScanResult, String> {
     use crate::scanner::HotspotScanner;
 
-    let n = top_n.unwrap_or(20);
     let is_full_scan = full_scan.unwrap_or(false);
+    let n = top_n.unwrap_or(if is_full_scan { 80 } else { 50 });
     let depth = max_depth.unwrap_or(3);
     let threshold = size_threshold_mb
         .map(|mb| mb * 1024 * 1024)
@@ -42,7 +42,7 @@ pub async fn scan_hotspot(
         info!("开始全盘深度扫描，Top {}，最大深度 {}，阈值 {}MB", n, depth, threshold / 1024 / 1024);
         crate::scanner::reset_hotspot_cancelled();
     } else {
-        info!("开始扫描 AppData 目录，Top {}", n);
+        info!("开始扫描 AppData 目录，Top {}，展示深度 {}，阈值 {}MB", n, depth, threshold / 1024 / 1024);
     }
 
     let result = tokio::task::spawn_blocking(move || {

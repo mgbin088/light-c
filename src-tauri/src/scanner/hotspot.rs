@@ -104,6 +104,7 @@ pub fn cancel_hotspot_scan() {
 // ============================================================================
 
 /// 系统保护目录黑名单（全盘扫描时禁止清理）
+/// ProgramData 已移除——其下 Docker/Scoop/VS Code Server 等是用户关心的主要空间占用
 const PROTECTED_DIRECTORIES: &[&str] = &[
     // Windows 核心系统目录
     "Windows",
@@ -121,8 +122,7 @@ const PROTECTED_DIRECTORIES: &[&str] = &[
     // 程序安装目录
     "Program Files",
     "Program Files (x86)",
-    "ProgramData",
-    // 用户配置目录（部分）
+    // 硬件驱动（无清理价值）
     "Intel",
     "AMD",
     "NVIDIA",
@@ -160,10 +160,9 @@ const SKIP_SCAN_DIRECTORIES: &[&str] = &[
 ];
 
 /// AppData 下需要跳过的系统目录
+/// microsoft 和 packages 已移除——Teams/OneDrive/UWP 应用数据是用户关心的主要空间占用
 const APPDATA_SKIP_FOLDERS: &[&str] = &[
-    "microsoft",
     "windows",
-    "packages",
     "connecteddevicesplatform",
     "comms",
     "history",
@@ -178,12 +177,12 @@ const APPDATA_SKIP_FOLDERS: &[&str] = &[
 
 /// 巨型系统目录（Win11 下文件量暴涨，禁止 WalkDir 深入遍历）
 /// 这些目录仅统计根级大小，不递归进入子目录
+/// SoftwareDistribution 已移除——Windows Update 缓存体积可达数GB，用户应能看到
 const HEAVY_SKIP_DIRS: &[&str] = &[
     "WinSxS",
     "WindowsApps",
     "DriverStore",
     "Installer",
-    "SoftwareDistribution",
     "Packages",
     "Catroot",
     "assembly",
@@ -282,10 +281,10 @@ pub enum ScanAccuracyMode {
 }
 
 impl ScanAccuracyMode {
-    /// 获取对应模式的 max_depth
+    /// 获取对应模式的扫描深度
     fn max_depth(self) -> u8 {
         match self {
-            ScanAccuracyMode::Fast => 4,
+            ScanAccuracyMode::Fast => 6,
             ScanAccuracyMode::Accurate => 10,
         }
     }
@@ -315,6 +314,9 @@ pub struct HotspotScanner {
     accuracy_mode: ScanAccuracyMode,
     /// 最大展示深度（以扫描根路径为 Level 0，默认 3，范围 2-5）
     max_display_depth: usize,
+    /// 扫描深度（控制 WalkDir/jwalk 的 max_depth，独立于展示深度）
+    /// Fast 模式固定 6 层，足以覆盖 AppData/Local/App/Cache 深度
+    scan_depth: u8,
     /// 最小展示大小阈值（字节，默认 50MB）
     size_threshold: u64,
 }
@@ -331,13 +333,19 @@ impl HotspotScanner {
             top_n,
             accuracy_mode: ScanAccuracyMode::Fast,
             max_display_depth: 3,
+            scan_depth: 6, // Fast 模式固定 6 层，覆盖 AppData/Local/App/Cache 深度
             size_threshold: MIN_SIZE_THRESHOLD,
         }
     }
 
     /// 设置扫描精度模式（链式调用）
+    /// 同时联动设置 scan_depth：Fast=6, Accurate=10
     pub fn with_accuracy(mut self, mode: ScanAccuracyMode) -> Self {
         self.accuracy_mode = mode;
+        self.scan_depth = match mode {
+            ScanAccuracyMode::Fast => 6,
+            ScanAccuracyMode::Accurate => 10,
+        };
         self
     }
 
@@ -388,7 +396,7 @@ impl HotspotScanner {
 
         let appdata_path = Self::get_appdata_path()?;
 
-        let max_depth = self.max_display_depth as u8;
+        let max_depth = self.scan_depth; // 扫描深度（固定 6），独立于展示深度
         let track_modified = self.accuracy_mode.track_modified();
         let cancel_flag = AtomicBool::new(false); // AppData 扫描不支持取消
 
@@ -480,7 +488,7 @@ impl HotspotScanner {
         };
 
         let total_first_level = first_level_dirs.len();
-        let max_depth = self.max_display_depth as u8;
+        let max_depth = self.scan_depth; // 扫描深度（固定 6），独立于展示深度
         let track_modified = self.accuracy_mode.track_modified();
 
         let total_scanned = AtomicUsize::new(0);
@@ -826,6 +834,11 @@ impl HotspotScanner {
             if folder_name.eq_ignore_ascii_case(protected) {
                 return true;
             }
+        }
+
+        // Windows Update 缓存：可见但不允许自动清理
+        if folder_name.eq_ignore_ascii_case("softwaredistribution") {
+            return true;
         }
 
         // 检查路径是否包含 Windows 系统目录
