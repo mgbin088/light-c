@@ -16,11 +16,6 @@
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License">
 </p>
 
-<p align="center">
-  <img src="public/assets/verify.png" alt="文件完整性验证示例" width="700">
-</p>
-
----
 
 ## 📸 运行截图
 
