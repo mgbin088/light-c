@@ -483,6 +483,30 @@ function FeatureSettings() {
             </div>
           </div>
 
+          {/* 深度扫描忽略系统目录 */}
+          <div className="pt-4 border-t border-[var(--border-color)]">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-[var(--text-primary)]">深度扫描忽略系统目录</p>
+                <p className="text-xs text-[var(--text-muted)] mt-1">
+                  关闭后可发现藏在系统保护目录下的异常大文件（如日志爆满），但扫描时间将增加数倍
+                </p>
+              </div>
+              <button
+                onClick={() => updateSettings({ hotspotIgnoreSystemDirs: !settings.hotspotIgnoreSystemDirs })}
+                className={`relative w-11 h-6 rounded-full transition-colors duration-200 shrink-0 ml-3 ${
+                  settings.hotspotIgnoreSystemDirs ? 'bg-[var(--brand-green)]' : 'bg-[var(--bg-switch)]'
+                }`}
+              >
+                <span
+                  className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white shadow transition-transform duration-300 ${
+                    settings.hotspotIgnoreSystemDirs ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            </div>
+          </div>
+
           {/* 自动忽略的目录说明 */}
           <div className="pt-4 border-t border-[var(--border-color)]">
             <p className="text-sm font-medium text-[var(--text-primary)] mb-3 flex items-center gap-1.5">
@@ -843,7 +867,7 @@ function FeedbackSettings() {
             </a>
 
             <a
-              href="mailto:liucygm33@gmail.com"
+              href="mailto:1378813463@qq.com"
               className="flex items-center justify-between p-3 rounded-xl bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] transition-colors group"
             >
               <div className="flex items-center gap-3">
@@ -852,7 +876,7 @@ function FeedbackSettings() {
                 </div>
                 <div>
                   <p className="text-sm font-medium text-[var(--text-primary)]">邮件反馈</p>
-                  <p className="text-xs text-[var(--text-muted)]">liucygm33@gmail.com</p>
+                  <p className="text-xs text-[var(--text-muted)]">1378813463@qq.com</p>
                 </div>
               </div>
               <ExternalLink className="w-4 h-4 text-[var(--text-faint)] group-hover:text-[var(--text-muted)]" />

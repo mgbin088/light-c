@@ -392,7 +392,7 @@ export function HotspotModule() {
     try {
       // 根据深度扫描开关决定扫描模式（全盘扫描条目更多）
       const topN = fullScanEnabled ? 80 : 50;
-      const result = await scanHotspot(topN, fullScanEnabled, settings.hotspotDepth, settings.hotspotSizeThreshold);
+      const result = await scanHotspot(topN, fullScanEnabled, settings.hotspotDepth, settings.hotspotSizeThreshold, settings.hotspotIgnoreSystemDirs);
       setScanResult(result);
 
       // 计算 Top 10 的总大小作为模块显示
@@ -551,6 +551,9 @@ export function HotspotModule() {
           <p className="text-xs mt-1">
             {fullScanEnabled ? '深度扫描可能需要较长时间，请耐心等待' : '这可能需要几秒钟'}
           </p>
+          {fullScanEnabled && !settings.hotspotIgnoreSystemDirs && (
+            <p className="text-xs mt-1 text-amber-500">⚠ 已关闭系统目录过滤，扫描时间可能较长</p>
+          )}
 
           {/* 深度扫描进度条 */}
           {fullScanEnabled && scanProgress && (

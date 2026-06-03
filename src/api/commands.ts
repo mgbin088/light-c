@@ -807,9 +807,10 @@ export async function scanHotspot(
   fullScan?: boolean,
   maxDepth?: number,
   sizeThresholdMb?: number,
+  ignoreSystemDirs?: boolean,
 ): Promise<HotspotScanResult> {
-  console.log('[scanHotspot] JS 调用参数:', { topN, fullScan, maxDepth, sizeThresholdMb });
-  return invoke<HotspotScanResult>('scan_hotspot', { topN, fullScan, maxDepth, sizeThresholdMb });
+  console.log('[scanHotspot] JS 调用参数:', { topN, fullScan, maxDepth, sizeThresholdMb, ignoreSystemDirs });
+  return invoke<HotspotScanResult>('scan_hotspot', { topN, fullScan, maxDepth, sizeThresholdMb, ignoreSystemDirs });
 }
 
 /**

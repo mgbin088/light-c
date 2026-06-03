@@ -12,6 +12,8 @@ interface AppSettings {
   hotspotDepth: number;
   /** 大目录大小阈值 MB (10-500，默认 50) */
   hotspotSizeThreshold: number;
+  /** 深度扫描时是否忽略系统目录（默认 true，保持现有行为） */
+  hotspotIgnoreSystemDirs: boolean;
 }
 
 interface SettingsContextValue {
@@ -30,6 +32,7 @@ const defaultSettings: AppSettings = {
   showAnchorNav: true, // 默认打开
   hotspotDepth: 3,     // 默认分析深度 3 层
   hotspotSizeThreshold: 50, // 默认 50MB
+  hotspotIgnoreSystemDirs: true, // 默认忽略系统目录
 };
 
 interface SettingsProviderProps {

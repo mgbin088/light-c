@@ -319,6 +319,9 @@ pub struct HotspotScanner {
     scan_depth: u8,
     /// 最小展示大小阈值（字节，默认 50MB）
     size_threshold: u64,
+    /// 深度扫描时是否忽略系统保护目录（默认 true）
+    /// 关闭后 Windows/Program Files/ProgramData 等目录的子目录也会纳入结果
+    ignore_system_dirs: bool,
 }
 
 impl HotspotScanner {
@@ -335,6 +338,7 @@ impl HotspotScanner {
             max_display_depth: 3,
             scan_depth: 6, // Fast 模式固定 6 层，覆盖 AppData/Local/App/Cache 深度
             size_threshold: MIN_SIZE_THRESHOLD,
+            ignore_system_dirs: true, // 默认忽略系统目录，保持现有行为
         }
     }
 
@@ -358,6 +362,13 @@ impl HotspotScanner {
     /// 设置大小阈值
     pub fn with_size_threshold(mut self, threshold: u64) -> Self {
         self.size_threshold = threshold.max(SIZE_THRESHOLD_FLOOR);
+        self
+    }
+
+    /// 设置是否忽略系统保护目录（仅对深度扫描生效）
+    /// 关闭后可发现藏在 Windows/Program Files/ProgramData 下的异常大文件
+    pub fn with_ignore_system_dirs(mut self, ignore: bool) -> Self {
+        self.ignore_system_dirs = ignore;
         self
     }
 
@@ -402,7 +413,7 @@ impl HotspotScanner {
 
         // 单次 jwalk 遍历 AppData，祖先聚合所有层级
         let (root_stats, ancestor_map) =
-            aggregate_ancestor_stats(&appdata_path, max_depth, track_modified, &cancel_flag);
+            aggregate_ancestor_stats(&appdata_path, max_depth, track_modified, &cancel_flag, true /* AppData 扫描无系统目录 */);
 
         let scanned_total_size = root_stats.total_size;
 
@@ -512,7 +523,7 @@ impl HotspotScanner {
 
             // 祖先聚合扫描：单次 WalkDir，每文件向上聚合到前 N 层祖先目录
             let (root_stats, ancestor_map) =
-                aggregate_ancestor_stats(dir, max_depth, track_modified, cancel_flag);
+                aggregate_ancestor_stats(dir, max_depth, track_modified, cancel_flag, self.ignore_system_dirs);
 
             // 合并到全局祖先缓存
             ancestor_cache.insert(dir.clone(), root_stats);
@@ -540,7 +551,9 @@ impl HotspotScanner {
 
             // 2. 从 ancestor_map 提取所有符合条件的祖先条目
             //    深度限制 = 扫描根深度 + max_display_depth（以扫描根为 Level 0）
-            if !is_protected_root {
+            //    当用户关闭系统目录过滤时，即使保护目录的子目录也纳入结果
+            let hide_ancestors = is_protected_root && self.ignore_system_dirs;
+            if !hide_ancestors {
                 for (path, stats) in &ancestor_map {
                     if stats.total_size >= self.size_threshold {
                         let depth = calculate_relative_depth(&c_drive, path);
@@ -596,6 +609,7 @@ impl HotspotScanner {
             &c_drive,
             true,
             self.size_threshold, // 使用用户配置的阈值，非硬编码 50MB
+            self.ignore_system_dirs,
         );
 
         // 对结果条目填充子目录（用于树形展示）
@@ -611,6 +625,7 @@ impl HotspotScanner {
                 &c_drive,
                 self.size_threshold,
                 true,
+                self.ignore_system_dirs,
             );
         }
 
@@ -1094,6 +1109,7 @@ fn aggregate_ancestor_stats(
     max_depth: u8,
     track_modified: bool,
     cancel_flag: &AtomicBool,
+    ignore_system_dirs: bool,
 ) -> (FolderStats, HashMap<PathBuf, FolderStats>) {
     let mut root_stats = FolderStats {
         total_size: 0,
@@ -1106,12 +1122,14 @@ fn aggregate_ancestor_stats(
     let walker = JWalkDir::new(root)
         .max_depth(max_depth as usize)
         .skip_hidden(false)
-        .process_read_dir(|_depth, _path, _state, children| {
+        .process_read_dir(move |_depth, _path, _state, children| {
             // 预过滤：阻止 jwalk 进入巨型系统目录和隐藏目录
+            // 当用户关闭系统目录过滤时，WinSxS/DriverStore 等也允许进入扫描
             children.retain(|dir_entry_result| {
                 dir_entry_result.as_ref().map(|e| {
                     let p = e.path();
-                    !is_heavy_system_dir(&p) && !is_hidden_by_path(&p)
+                    let skip_heavy = ignore_system_dirs && is_heavy_system_dir(&p);
+                    !skip_heavy && !is_hidden_by_path(&p)
                 }).unwrap_or(false) // 读取失败的条目无法进入，安全移除
             });
         })
@@ -1197,6 +1215,7 @@ fn build_tree_children(
     root: &Path,
     min_size: u64,
     is_full_scan: bool,
+    ignore_system_dirs: bool,
 ) -> Vec<HotspotEntry> {
     if current_depth > max_depth {
         return Vec::new();
@@ -1205,9 +1224,10 @@ fn build_tree_children(
     if let Ok(entries) = std::fs::read_dir(parent) {
         for e in entries.filter_map(|e| e.ok()) {
             let p = e.path();
+            let skip_heavy = ignore_system_dirs && is_heavy_system_dir(&p);
             if !p.is_dir()
                 || is_noise_directory(&p)
-                || is_heavy_system_dir(&p)
+                || skip_heavy
                 || HotspotScanner::should_skip_scan(&p)
             {
                 continue;
@@ -1225,6 +1245,7 @@ fn build_tree_children(
                         root,
                         min_size,
                         is_full_scan,
+                        ignore_system_dirs,
                     );
                     children.push(child);
                 }
@@ -1271,15 +1292,17 @@ fn find_meaningful_children(
     c_drive: &Path,
     is_full_scan: bool,
     min_size: u64,
+    ignore_system_dirs: bool,
 ) -> Vec<HotspotEntry> {
     let mut children: Vec<HotspotEntry> = Vec::new();
 
     if let Ok(entries) = std::fs::read_dir(dir) {
         for entry in entries.filter_map(|e| e.ok()) {
             let sub_path = entry.path();
+            let skip_heavy = ignore_system_dirs && is_heavy_system_dir(&sub_path);
             if !sub_path.is_dir()
                 || HotspotScanner::should_skip_scan(&sub_path)
-                || is_heavy_system_dir(&sub_path)
+                || skip_heavy
                 || is_noise_directory(&sub_path)
             {
                 continue;
@@ -1339,6 +1362,7 @@ fn flatten_hotspots(
     c_drive: &Path,
     is_full_scan: bool,
     min_size: u64,
+    ignore_system_dirs: bool,
 ) -> Vec<HotspotEntry> {
     // 过滤掉噪音目录，放入 BinaryHeap（大顶堆，O(log n) 操作）
     let mut candidates: BinaryHeap<SizeOrd> = all_entries
@@ -1356,7 +1380,7 @@ fn flatten_hotspots(
 
         if should_expand_directory(&entry) {
             let dir_path = PathBuf::from(&entry.path);
-            let children = find_meaningful_children(&dir_path, cache, c_drive, is_full_scan, min_size);
+            let children = find_meaningful_children(&dir_path, cache, c_drive, is_full_scan, min_size, ignore_system_dirs);
 
             if children.is_empty() {
                 if seen.insert(dir_path) {
@@ -1413,6 +1437,7 @@ impl HotspotScanner {
             4,   // max_depth
             false, // track_modified (快速模式)
             &cancel_flag,
+            true, // 路径钻取：此上下文无系统目录
         );
 
         let mut entries: Vec<HotspotEntry> = ancestor_map
