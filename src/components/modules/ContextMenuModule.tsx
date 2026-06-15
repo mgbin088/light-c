@@ -10,7 +10,6 @@ import {
   MousePointerClick,
   Loader2,
   Trash2,
-  CheckCircle2,
   AlertTriangle,
   Shield,
   ChevronDown,
@@ -20,6 +19,7 @@ import {
 } from 'lucide-react';
 import { ModuleCard } from '../ModuleCard';
 import { ConfirmDialog } from '../ConfirmDialog';
+import { EmptyState } from '../EmptyState';
 import { useDashboard } from '../../contexts/DashboardContext';
 import {
   scanContextMenu,
@@ -546,6 +546,16 @@ export function ContextMenuModule() {
           </span>
         }
       >
+        {moduleState.status === 'idle' && !scanResult && (
+          <div className="p-5">
+            <EmptyState
+              icon={MousePointerClick}
+              title="尚未扫描右键菜单"
+              description="点击开始扫描，检查注册表中失效或指向不存在文件的右键菜单项。"
+            />
+          </div>
+        )}
+
         {/* ── 扫描结果内容 ── */}
         {scanResult && (
           <div className="p-5 space-y-4">
@@ -705,27 +715,26 @@ export function ContextMenuModule() {
               </div>
             ) : (
               /* 过滤后无条目 */
-              <div className="py-6 text-center">
-                <p className="text-sm text-[var(--text-muted)]">
-                  {showInvalidOnly
-                    ? '当前没有无效的右键菜单项'
-                    : '没有扫描到右键菜单条目'}
-                </p>
-              </div>
+              <EmptyState
+                icon={MousePointerClick}
+                title={showInvalidOnly ? '当前没有无效的右键菜单项' : '没有扫描到右键菜单条目'}
+                description={showInvalidOnly ? '所有可见菜单项都指向有效文件。' : '注册表中没有发现可展示的右键菜单项。'}
+                tone={showInvalidOnly ? 'success' : 'neutral'}
+                compact
+              />
             )}
           </div>
         )}
 
         {/* 空状态：扫描完成但无任何条目 */}
         {scanResult && scanResult.entries.length === 0 && (
-          <div className="p-8 text-center">
-            <CheckCircle2 className="w-12 h-12 text-[var(--brand-green)] mx-auto mb-3" />
-            <p className="text-sm font-medium text-[var(--text-primary)]">
-              未发现右键菜单问题
-            </p>
-            <p className="text-xs text-[var(--text-muted)] mt-1">
-              所有右键菜单项均指向有效的可执行文件
-            </p>
+          <div className="p-5">
+            <EmptyState
+              icon={MousePointerClick}
+              title="未发现右键菜单问题"
+              description="所有右键菜单项均指向有效的可执行文件。"
+              tone="success"
+            />
           </div>
         )}
       </ModuleCard>

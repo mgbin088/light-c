@@ -49,6 +49,40 @@ function getParentTypeColor(type: string): string {
   }
 }
 
+function FolderRankBadge({
+  rank,
+  isProtected,
+}: {
+  rank: number;
+  isProtected: boolean;
+}) {
+  return (
+    <div className="flex-shrink-0 relative w-10 h-9 flex items-center justify-center">
+      <div className={`relative w-9 h-7 rounded-md shadow-sm ${
+        isProtected
+          ? 'bg-red-400'
+          : rank <= 3
+            ? 'bg-amber-400'
+            : 'bg-amber-300'
+      }`}>
+        <div className={`absolute -top-1 left-1.5 h-2.5 w-4 rounded-t-md ${
+          isProtected
+            ? 'bg-red-300'
+            : rank <= 3
+              ? 'bg-amber-300'
+              : 'bg-amber-200'
+        }`} />
+        <div className="absolute inset-x-0 bottom-0 h-5 rounded-md bg-gradient-to-b from-yellow-300 to-amber-500" />
+      </div>
+      <span className={`absolute -right-0.5 -bottom-0.5 min-w-5 h-5 px-1 rounded-full flex items-center justify-center text-[10px] font-bold shadow-sm ${
+        isProtected ? 'bg-red-500 text-white' : 'bg-[var(--brand-green)] text-white'
+      }`}>
+        {rank}
+      </span>
+    </div>
+  );
+}
+
 // ============================================================================
 // 面包屑导航
 // 路径过长时截断中间部分，保留最后两级
@@ -183,16 +217,8 @@ const ModalEntryItem = memo(function ModalEntryItem({
       />
 
       <div className="relative flex items-center gap-3">
-        {/* 排名 */}
-        <div className={`flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold ${
-          entry.is_protected
-            ? 'bg-red-500 text-white'
-            : rank <= 3
-              ? 'bg-[var(--brand-green)] text-white'
-              : 'bg-[var(--bg-card)] text-[var(--text-secondary)] border border-[var(--border-color)]'
-        }`}>
-          {rank}
-        </div>
+        {/* 文件夹徽标：与大目录分析主列表保持一致，序号作为角标承载排序信息。 */}
+        <FolderRankBadge rank={rank} isProtected={entry.is_protected} />
 
         {/* 左侧：图标 + 名称 */}
         <div className="flex-1 min-w-0">

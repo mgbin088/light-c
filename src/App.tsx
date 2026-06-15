@@ -21,7 +21,7 @@ import {
   RegistryModule,
   HotspotModule,
   ContextMenuModule,
-  ProgramDataModule,
+  DiskGrowthModule,
   SplashScreen,
   Footer,
   AnchorNav,
@@ -115,9 +115,9 @@ function DashboardContent() {
             <HotspotModule />
           </div>
 
-          {/* ProgramData 分析模块 */}
-          <div data-module-id="programdata">
-            <ProgramDataModule />
+          {/* C 盘全盘分析模块 */}
+          <div data-module-id="disk-growth">
+            <DiskGrowthModule />
           </div>
 
           {/* 底部留白 */}

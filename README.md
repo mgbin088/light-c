@@ -37,14 +37,15 @@
 - **虚拟列表优化**：大量文件列表也能流畅滚动
 
 ### 🔍 大文件清理
-- **MFT 混合扫描引擎**：管理员运行时自动启用 NTFS USN Journal 枚举 + 并行文件大小检测，扫描速度从 30-60 秒降至 10 秒内；非管理员自动降级为原有方案，前端标注扫描模式
-- **智能路径过滤**：自动跳过系统目录和小文件扩展名，聚焦用户目录和程序目录中的大文件
-- **智能扫描**：遍历系统盘（自动检测盘符），用最小堆维护 Top N 最大文件
+- **MFT 全量扫描引擎**：管理员运行时自动启用 NTFS USN Journal 枚举 + 顺序解析 `$MFT` 文件大小，先维护大文件候选池再懒重建候选路径，避免逐文件 metadata IO；非管理员或 MFT 失败时自动降级为原有遍历方案
+- **系统目录保护**：MFT 模式覆盖全盘普通文件 TopN，同时跳过关键系统目录，降低误删核心系统文件的风险
+- **智能扫描**：自动检测系统盘，MFT 优先、WalkDir 降级，并用最小堆维护 Top N 最大文件
 - **可调扫描量**：支持自定义返回数量 (10-200，默认 50， 未接入前端)
 - **后端风险计算**：Rust 端基于路径规则计算风险等级 (1-5)，高风险文件前端锁定不可选
 - **来源标签**：自动识别文件来源（微信文件、Steam 游戏、虚拟机磁盘、系统临时文件等 20+ 标签）
 - **实时进度**：扫描时显示当前路径和已扫描文件数，支持中途取消
-- **一键定位**：支持打开文件所在目录或直接打开文件
+- **阶段耗时诊断**：MFT 模式下展示枚举、大小解析、候选路径等阶段信息，方便定位扫描瓶颈
+- **一键定位**：支持打开文件所在目录、直接打开文件，或跳转 Bing 搜索完整路径辅助判断是否可删
 - **批量选择删除**：勾选后一键清理，释放大量空间
 
 ### 💬 社交软件专清
@@ -61,16 +62,17 @@
 
 ### 🔬 大目录分析
 - **双模式扫描**：默认 AppData 智能分析（快速定位用户数据热点），深度扫描模式覆盖全盘一级目录
-- **MFT 直读引擎**：管理员运行时深度扫描自动启用 NTFS MFT 直读，秒级完成全盘扫描（类似 WizTree），非管理员自动降级为常规遍历
-- **树形层级展示**：递归构建父子目录树，渐进缩进 + L{n} 深度标签，直观呈现目录结构
-- **可调展示深度**：设置中调节展示层数（2-5 层），实际扫描深度固定 6 层确保覆盖率
+- **MFT 直读引擎**：管理员运行时深度扫描自动启用 NTFS USN 枚举 + `$MFT` 顺序大小解析，秒级完成全盘扫描（类似 WizTree）；非管理员或 MFT 失败时保留 jwalk 降级遍历
+- **树形层级展示**：基于 MFT/遍历聚合缓存构建内存父子索引，结果页按设置深度展示目录树，避免结果生成阶段反复读取磁盘目录
+- **可调展示深度**：设置中调节展示层数（2-4 层），实际扫描深度固定 6 层确保覆盖率
 - **大小阈值过滤**：可配置最低展示大小（10-500MB），自动过滤噪音目录
 - **系统目录过滤开关**：深度扫描时可选择是否扫描系统保护目录（Windows、Program Files 等），关闭后可发现藏在系统目录下的异常大文件
 - **热点展开机制**：容器级大目录（>20GB/系统保护目录）自动展开为子目录参与 TopN 竞争
 - **无限下钻弹窗**：点击目录右侧 ▶ 按钮进入沉浸式模态框，支持无限层级探索 + 面包屑导航
 - **智能标记**：自动识别缓存目录、系统保护目录、程序目录，辅助安全决策
 - **一键清理**：支持清空缓存目录内容（保留根目录），跳过占用文件
-- **实时进度**：深度扫描模式下推送扫描进度，支持中途取消
+- **实时进度**：深度扫描模式下结构化展示 MFT 枚举、索引建立、大小读取、目录聚合、结果生成等阶段耗时，支持中途取消并辅助定位性能瓶颈
+- **文件夹徽标列表**：结果列表使用黄色文件夹徽标承载目录语义，序号作为角标展示，树形层级更容易扫读
 
 ### 🎯 深度卸载残留清理（置信度评分引擎）
 - **置信度评分模型**：基线 0.0 纯正向驱动，7 项正向信号（DisplayName 匹配 +0.45、卸载程序残留 +0.35、可执行文件 +0.20 等）和 7 项负向信号（已安装应用 -0.60、通用目录 -0.40、ProgramData -0.30 等）独立加权，score ≥ 0.65 为高置信度残留、0.40~0.65 为可疑项
@@ -98,12 +100,14 @@
 - **删除前自动备份**：清理前自动导出 .reg 备份文件，出问题可双击还原
 - **分权限操作**：用户级（HKCU）不需管理员即可删除；系统级（HKLM）标识需要管理员权限
 
-### 📂 ProgramData 分析
-- **两层扫描策略**：一级目录全量扫描，超过 100MB 的目录自动下钻子目录
-- **规则引擎分析**：内置 14 条分类规则，5 种匹配模式（Exact/Prefix/Contains/Suffix/Regex），自动识别 Windows Update、Defender、驱动缓存、Docker、Adobe 等目录
-- **风险分级**：安全/谨慎/危险三级标识，安全项可一键清理，危险项自动保护
-- **增长对比**：基于快照系统追踪目录大小变化，找出”悄悄变大”的目录；支持新旧快照格式自动兼容
-- **安全清理**：所有删除移动到回收站，路径组件边界精确匹配校验
+### 📂 C 盘全盘分析
+- **MFT 快速扫描**：原 ProgramData 分析入口升级为 C 盘全盘分析，管理员运行时通过 NTFS MFT 枚举重建目录树，并顺序扫描 `$MFT` 建立文件大小表，避免传统全盘递归扫描和大量逐文件 metadata IO
+- **快照对比**：每次扫描都会保存全盘目录聚合快照，并与上一次快照对比，计算 C 盘净新增/净减少空间
+- **变化目录定位**：结果列表优先展示本次与上次之间发生变化的目录、当前大小、变化量、变化级别和原因提示，支持一键打开目录或跳转 Bing 搜索路径用途继续排查；变化项按变化量排序，默认最多展示 300 个目录，可在设置中调整为 50-1000
+- **上次扫描时间**：结果区展示上一份快照时间，并明确当前列表是“变化目录”还是首次/无变化时的“占用基线”列表
+- **阶段耗时诊断**：扫描中展示 MFT 枚举、路径重建、文件大小读取、目录聚合等阶段进度，扫描完成后展示各阶段耗时，便于定位性能瓶颈
+- **首次扫描行为**：首次扫描只建立基准快照；从第二次扫描开始展示新增、减少和显著增长目录
+- **模块化实现**：全盘扫描、快照和增长分析代码已迁移到 `src-tauri/src/disk_growth/`，命令入口统一为 `scan_disk_growth`
 
 ### �🛡️ 安全保护
 - **系统路径保护**：自动识别并跳过关键系统文件和目录
@@ -155,7 +159,7 @@
 │  │  - Leftovers       │                                                     │
 │  │  - Registry        │                                                     │
 │  │  - ContextMenu     │                                                     │
-│  │  - ProgramData     │                                                     │
+│  │  - DiskGrowth      │                                                     │
 │  │  - SystemSlim      │                                                     │
 │  └────────────────────┘                                                     │
 │                                    │                                        │
@@ -174,17 +178,16 @@
 │  │  - leftovers        │  ┌─────────────────────┐                           │
 │  │  - registry         │  │   Logger Module     │                           │
 │  │  - context_menu     │  └─────────────────────┘                           │
-│  │  - programdata/*    │  ┌─────────────────────┐                           │
-│  │  (scanner/analyzer/ │  │   Data Dir Module   │                           │
-│  │   cleaner/snapshot/ │  └─────────────────────┘                           │
-│  │   growth)           │                                                   │
+│  │  - disk_growth/*    │  ┌─────────────────────┐                           │
+│  │  (MFT/snapshot/     │  │   Data Dir Module   │                           │
+│  │   growth)           │  └─────────────────────┘                           │
 │  └─────────────────────┘                                                   │
 │                                                                              │
 │  ┌────────────────────────────────────────────────────────────────────────┐ │
 │  │                          Commands Layer (IPC)                            │ │
 │  │   commands/disk.rs   commands/scan.rs   commands/social.rs              │ │
 │  │   commands/delete.rs   commands/system.rs   commands/leftovers.rs       │ │
-│  │   commands/registry.rs   commands/hotspot.rs   commands/programdata.rs  │ │
+│  │   commands/registry.rs   commands/hotspot.rs   commands/disk_growth.rs  │ │
 │  │   commands/tools.rs   commands/logger_cmd.rs   commands/data.rs         │ │
 │  └────────────────────────────────────────────────────────────────────────┘ │
 │                                                                              │
@@ -220,7 +223,7 @@ LightC/
 │   │   │   ├── LeftoversModule.tsx   # 卸载残留模块
 │   │   │   ├── RegistryModule.tsx    # 注册表清理模块
 │   │   │   ├── ContextMenuModule.tsx # 右键菜单清理模块
-│   │   │   ├── ProgramDataModule.tsx # ProgramData 分析模块
+│   │   │   ├── DiskGrowthModule.tsx # C 盘全盘分析模块
 │   │   │   ├── SocialCleanModule.tsx # 社交软件专清模块
 │   │   │   ├── SystemSlimModule.tsx  # 系统瘦身模块
 │   │   │   └── index.ts
@@ -284,16 +287,16 @@ LightC/
 │   │   │   │   └── engine_selector.rs#     引擎自动选择
 │   │   │   ├── big_files_engine/     #   大文件扫描引擎集合
 │   │   │   │   ├── mft_core.rs       #     MFT 枚举+路径重建
-│   │   │   │   └── mft_bigfiles.rs   #     USN+并行stat Top-N 扫描
+│   │   │   │   └── mft_bigfiles.rs   #     USN+$MFT 顺序解析 Top-N 扫描
 │   │   │   ├── leftovers.rs          # 卸载残留扫描（置信度评分引擎）
 │   │   │   ├── registry.rs           # 注册表残留扫描 (HKCR\Applications)
 │   │   │   ├── registry_scoring.rs    # 路径解析 / 存在性缓存 / 安全过滤
-│   │   │   ├── context_menu.rs       # 右键菜单扫描与清理
-│   │   │   ├── programdata.rs        # ProgramData 目录扫描
-│   │   │   ├── programdata_rules.rs  # ProgramData 规则引擎
-│   │   │   ├── programdata_cleaner.rs# ProgramData 安全清理
-│   │   │   ├── programdata_snapshot.rs# ProgramData 快照系统
-│   │   │   └── programdata_growth.rs # ProgramData 增长对比
+│   │   │   └── context_menu.rs       # 右键菜单扫描与清理
+│   │   ├── disk_growth/              # C 盘全盘变化分析
+│   │   │   ├── mod.rs                #   模块入口
+│   │   │   ├── mft_scan.rs           #   MFT 枚举 + 目录聚合
+│   │   │   ├── snapshot.rs           #   全盘快照保存与读取
+│   │   │   └── growth.rs             #   快照变化对比
 │   │   ├── cleaner/                  # 清理器模块
 │   │   │   ├── mod.rs
 │   │   │   ├── delete_engine.rs      # 删除引擎（含安全保护）
@@ -310,7 +313,7 @@ LightC/
 │   │   │   ├── leftovers.rs          #   卸载残留
 │   │   │   ├── registry.rs           #   注册表 + 右键菜单清理
 │   │   │   ├── hotspot.rs            #   大目录分析 + 下钻
-│   │   │   ├── programdata.rs        #   ProgramData 全系列
+│   │   │   ├── disk_growth.rs        #   C 盘全盘变化分析
 │   │   │   ├── tools.rs              #   系统工具
 │   │   │   ├── logger_cmd.rs         #   清理日志
 │   │   │   └── data.rs               #   数据目录管理
@@ -319,8 +322,6 @@ LightC/
 │   ├── capabilities/
 │   │   └── default.json              # 权限配置
 │   ├── icons/                        # 应用图标
-│   ├── rules/
-│   │   └── programdata_rules.json   # ProgramData 分析规则（JSON 可配置）
 │   ├── tauri.conf.json               # Tauri 配置
 │   └── Cargo.toml                    # Rust 依赖
 │
@@ -474,4 +475,3 @@ npm run tauri build
 <p align="center">
   <sub>Light 代表轻量、轻快，寓意让您的C盘变得轻盈；C 即C盘，Windows系统的核心磁盘。</sub>
 </p>
-

@@ -420,6 +420,9 @@ const DEPTH_OPTIONS: SelectOption<string>[] = [
   { value: '4', label: '4 层' },
 ];
 
+const HOTSPOT_SIZE_OPTIONS = [10, 50, 100, 200, 500];
+const DISK_GROWTH_MAX_ENTRY_OPTIONS = [50, 100, 200, 300, 500, 1000];
+
 function FeatureSettings() {
   const { settings, updateSettings } = useSettings();
 
@@ -461,32 +464,19 @@ function FeatureSettings() {
                 {settings.hotspotSizeThreshold} MB
               </span>
             </div>
-            <input
-              type="range"
-              min={10}
-              max={500}
-              step={10}
-              value={settings.hotspotSizeThreshold}
-              onChange={(e) => updateSettings({ hotspotSizeThreshold: Number(e.target.value) })}
-              className="w-full h-2 bg-[var(--bg-card)] rounded-full appearance-none cursor-pointer
-                [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5
-                [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-[var(--brand-green)]
-                [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:cursor-pointer
-                [&::-webkit-slider-thumb]:hover:scale-110 [&::-webkit-slider-thumb]:transition-transform"
-            />
-            <div className="flex justify-between mt-1.5">
-              {[10, 50, 100, 200, 500].map((n) => (
-                <span
+            <div className="grid grid-cols-5 gap-2">
+              {HOTSPOT_SIZE_OPTIONS.map((n) => (
+                <button
                   key={n}
-                  className={`text-[10px] cursor-pointer transition-colors ${
-                    settings.hotspotSizeThreshold === n
-                      ? 'text-[var(--brand-green)] font-semibold'
-                      : 'text-[var(--text-faint)] hover:text-[var(--text-muted)]'
-                  }`}
                   onClick={() => updateSettings({ hotspotSizeThreshold: n })}
+                  className={`h-8 rounded-lg text-xs font-medium border transition-colors ${
+                    settings.hotspotSizeThreshold === n
+                      ? 'bg-[var(--brand-green)] text-white border-[var(--brand-green)]'
+                      : 'bg-[var(--bg-card)] text-[var(--text-muted)] border-[var(--border-color)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]'
+                  }`}
                 >
-                  {n >= 1000 ? `${n / 1000}GB` : `${n}MB`}
-                </span>
+                  {n}MB
+                </button>
               ))}
             </div>
           </div>
@@ -547,6 +537,45 @@ function FeatureSettings() {
               </p>
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* C 盘全盘分析 */}
+      <div className="space-y-3">
+        <h4 className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider flex items-center gap-2">
+          <HardDrive className="w-3.5 h-3.5" />
+          C 盘全盘分析
+        </h4>
+        <div className="bg-[var(--bg-main)] rounded-2xl p-5 space-y-4">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-sm font-medium text-[var(--text-primary)]">最多展示变化目录</p>
+              <p className="text-xs text-[var(--text-muted)] mt-1 leading-relaxed">
+                限制与上次快照对比后返回的变化目录数量。数值越大，前端渲染和排序压力越高，建议保持 300 以内。
+              </p>
+            </div>
+            <span className="text-sm font-semibold text-[var(--brand-green)] shrink-0">
+              {settings.diskGrowthMaxEntries} 项
+            </span>
+          </div>
+          <div className="grid grid-cols-6 gap-2">
+            {DISK_GROWTH_MAX_ENTRY_OPTIONS.map((n) => (
+              <button
+                key={n}
+                onClick={() => updateSettings({ diskGrowthMaxEntries: n })}
+                className={`h-8 rounded-lg text-xs font-medium border transition-colors ${
+                  settings.diskGrowthMaxEntries === n
+                    ? 'bg-[var(--brand-green)] text-white border-[var(--brand-green)]'
+                    : 'bg-[var(--bg-card)] text-[var(--text-muted)] border-[var(--border-color)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]'
+                }`}
+              >
+                {n}
+              </button>
+            ))}
+          </div>
+          <p className="text-[11px] text-[var(--text-faint)]">
+            边界范围：50 - 1000 项。首次扫描或无变化时仍显示占用基线列表，不受此项影响。
+          </p>
         </div>
       </div>
     </div>
@@ -692,23 +721,19 @@ function GuideSettings() {
           <div>
             <p className="text-sm font-medium text-[var(--text-primary)] mb-2 flex items-center gap-2">
               <HardDrive className="w-4 h-4 text-[var(--brand-green)]" />
-              ProgramData 分析
+              C 盘全盘分析
             </p>
             <p className="text-xs text-[var(--text-muted)] leading-relaxed pl-6">
-              深度分析 C:\ProgramData 目录，采用<span className="text-[var(--brand-green)] font-medium">两层扫描策略</span>：
-              一级目录全量扫描，超过 <span className="font-medium">100MB</span> 的目录自动下钻子目录。
-              内置 <span className="font-medium">20+</span> 条分类规则，自动识别 Windows Update、Defender、驱动缓存、Docker、Adobe 等目录。
+              使用<span className="text-[var(--brand-green)] font-medium">NTFS MFT</span> 枚举 C 盘文件记录，重建目录树并聚合目录大小。
+              该能力需要管理员权限；首次扫描会建立基准快照，第二次扫描开始展示新增、减少和明显变化的目录。
             </p>
             <p className="text-xs text-[var(--text-muted)] leading-relaxed pl-6 mt-2">
-              <span className="text-[var(--brand-green)] font-medium">风险分级：</span>
-              每个目录标记为<span className="text-[var(--brand-green)] font-medium">安全</span>、
-              <span className="text-[var(--color-warning)] font-medium">谨慎</span>或
-              <span className="text-[var(--color-danger)] font-medium">危险</span>三级。
-              安全项可一键清理（移至回收站），危险项（如系统组件）自动保护不可勾选。
+              <span className="text-[var(--brand-green)] font-medium">变化定位：</span>
+              每次扫描会与上次快照对比，计算 C 盘净新增/净减少空间，并按变化量列出对应目录、当前大小、变化级别和原因提示。
             </p>
             <p className="text-xs text-[var(--text-muted)] leading-relaxed pl-6 mt-2">
-              <span className="text-[var(--brand-green)] font-medium">增长对比：</span>基于快照系统追踪目录大小变化，自动生成增长报告，
-              找出"悄悄变大"的目录。最多保留 <span className="font-medium">3</span> 份历史快照。
+              <span className="text-[var(--brand-green)] font-medium">只做分析：</span>
+              全盘变化不等同于可删除项，因此结果页只提供打开目录继续排查，不提供一键清理，避免误删系统或应用数据。
             </p>
           </div>
         </div>

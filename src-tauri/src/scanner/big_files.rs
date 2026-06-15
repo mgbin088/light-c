@@ -52,6 +52,12 @@ pub struct LargeFileScanProgress {
     /// 扫描引擎标识: "mft" / "walkdir"
     #[serde(default)]
     pub backend: String,
+    #[serde(default)]
+    pub stage: String,
+    #[serde(default)]
+    pub message: String,
+    #[serde(default)]
+    pub elapsed_ms: u64,
 }
 
 // ============================================================================
@@ -69,6 +75,10 @@ pub fn cancel() {
     LARGE_FILE_SCAN_CANCELLED.store(true, AtomicOrdering::SeqCst);
 }
 
+pub(crate) fn is_cancelled() -> bool {
+    LARGE_FILE_SCAN_CANCELLED.load(AtomicOrdering::SeqCst)
+}
+
 /// 执行大文件扫描（阻塞，应在 spawn_blocking 中调用）
 pub fn scan(window: &Window, top_n: usize) -> Result<Vec<LargeFileEntry>, String> {
     #[cfg(target_os = "windows")]
@@ -81,16 +91,13 @@ pub fn scan(window: &Window, top_n: usize) -> Result<Vec<LargeFileEntry>, String
         log::info!("开始扫描大文件: {} (Top {})", root, top_n);
 
         // ========================================================================
-        // 尝试 MFT V3 直读引擎（管理员 + NTFS 时秒级完成）
+        // 尝试 MFT 全量直读引擎（管理员 + NTFS 时秒级完成）
         // ========================================================================
         {
             use crate::scanner::big_files_engine::mft_core;
             let drive_letter = system_drive.chars().next().unwrap_or('C');
             let is_admin = mft_core::is_elevated();
             let is_ntfs_drive = mft_core::is_ntfs(drive_letter);
-
-            // 临时加这行
-            eprintln!(">>> is_admin={} is_ntfs={}", is_admin, is_ntfs_drive);
 
             // 通过 progress event 告知前端 MFT 状态（release 无控制台）
             let _ = window.emit(
@@ -105,50 +112,47 @@ pub fn scan(window: &Window, top_n: usize) -> Result<Vec<LargeFileEntry>, String
                     scanned_count: 0,
                     found_count: 0,
                     backend: if is_admin && is_ntfs_drive { "mft".into() } else { "walkdir".into() },
+                    stage: "detect".into(),
+                    message: "正在检测扫描引擎".into(),
+                    elapsed_ms: 0,
                 },
             );
             if is_admin && is_ntfs_drive {
-                log::info!("[BigFiles] 尝试 MFT V3 直读引擎...");
+                log::info!("[BigFiles] 尝试 MFT 全量直读引擎...");
                 let _ = window.emit(
                     "large-file-scan:progress",
                     LargeFileScanProgress {
-                        current_path: "正在初始化 MFT 直读引擎...".into(),
+                        current_path: "正在初始化 MFT 全量扫描引擎...".into(),
                         scanned_count: 0,
                         found_count: 0,
                         backend: "mft".into(),
+                        stage: "init".into(),
+                        message: "正在初始化 MFT 全量扫描引擎".into(),
+                        elapsed_ms: 0,
                     },
                 );
 
                 match crate::scanner::big_files_engine::mft_bigfiles::scan_top_files_via_mft(
                     top_n,
-                    |processed| {
+                    |progress| {
                         let _ = window.emit(
                             "large-file-scan:progress",
                             LargeFileScanProgress {
-                                current_path: format!(
-                                    "MFT 直读扫描中... 已处理 {} 条记录",
-                                    processed
-                                ),
-                                scanned_count: processed as u64,
-                                found_count: 0,
+                                current_path: progress.message.clone(),
+                                scanned_count: progress.processed as u64,
+                                found_count: progress.found_count,
                                 backend: "mft".into(),
+                                stage: progress.stage.clone(),
+                                message: progress.message,
+                                elapsed_ms: progress.elapsed_ms,
                             },
                         );
                     },
                 ) {
                     Ok(results) if !results.is_empty() => {
                         log::info!(
-                            "[BigFiles] MFT 扫描完成，返回 {} 个文件",
+                            "[BigFiles] MFT 全量扫描完成，返回 {} 个文件",
                             results.len()
-                        );
-                        let _ = window.emit(
-                            "large-file-scan:progress",
-                            LargeFileScanProgress {
-                                current_path: "MFT 扫描完成，正在生成结果...".into(),
-                                scanned_count: results.len() as u64,
-                                found_count: results.len(),
-                                backend: "mft".into(),
-                            },
                         );
                         return Ok(results);
                     }
@@ -160,10 +164,18 @@ pub fn scan(window: &Window, top_n: usize) -> Result<Vec<LargeFileEntry>, String
                                 scanned_count: 0,
                                 found_count: 0,
                                 backend: "walkdir".into(),
+                                stage: "fallback".into(),
+                                message: "MFT 返回空结果，降级到常规扫描".into(),
+                                elapsed_ms: 0,
                             },
                         );
                     }
                     Err(e) => {
+                        if is_cancelled() || e.contains("扫描已取消") {
+                            log::info!("[BigFiles] MFT 全量扫描被用户取消");
+                            let _ = window.emit("large-file-scan:cancelled", ());
+                            return Ok(Vec::new());
+                        }
                         let _ = window.emit(
                             "large-file-scan:progress",
                             LargeFileScanProgress {
@@ -171,6 +183,9 @@ pub fn scan(window: &Window, top_n: usize) -> Result<Vec<LargeFileEntry>, String
                                 scanned_count: 0,
                                 found_count: 0,
                                 backend: "walkdir".into(),
+                                stage: "fallback".into(),
+                                message: format!("MFT 失败: {}，降级到常规扫描", e),
+                                elapsed_ms: 0,
                             },
                         );
                     }
@@ -240,6 +255,9 @@ pub fn scan(window: &Window, top_n: usize) -> Result<Vec<LargeFileEntry>, String
                         scanned_count: file_count,
                         found_count: heap.len(),
                         backend: "walkdir".into(),
+                        stage: "walkdir".into(),
+                        message: "正在遍历系统盘文件".into(),
+                        elapsed_ms: 0,
                     };
                     let _ = window.emit("large-file-scan:progress", &progress);
                     last_emit = Instant::now();

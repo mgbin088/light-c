@@ -7,6 +7,7 @@
 mod cleaner;
 mod commands;
 mod data_dir;
+mod disk_growth;
 mod health_score;
 mod logger;
 mod scanner;
@@ -107,12 +108,8 @@ pub fn run() {
             // 系统快捷工具
             open_startup_manager,
             open_storage_settings,
-            // ProgramData 分析
-            scan_programdata,
-            scan_and_analyze_programdata,
-            analyze_programdata,
-            diff_programdata,
-            clean_programdata,
+            // C 盘全盘变化分析
+            scan_disk_growth,
             // 数据目录管理
             get_data_directory,
             set_data_directory,

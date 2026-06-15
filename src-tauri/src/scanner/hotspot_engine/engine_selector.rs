@@ -16,6 +16,8 @@ use log::{info, warn};
 
 use crate::scanner::hotspot::FolderStats;
 
+use super::mft_scanner::MftScanProgress;
+
 /// 扫描后端类型（用于前端展示当前使用的引擎）
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum HotspotBackend {
@@ -67,7 +69,7 @@ pub fn scan_full_drive(
     max_depth: u8,
     track_modified: bool,
     cancel_flag: &AtomicBool,
-    progress_cb: impl Fn(usize),
+    progress_cb: impl Fn(MftScanProgress),
 ) -> (HashMap<PathBuf, FolderStats>, HotspotBackend) {
     let backend = detect_backend(drive_letter);
 

@@ -5,8 +5,9 @@
 
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { FileBox, Trash2, Loader2, FileWarning, FolderOpen, ExternalLink, StopCircle } from 'lucide-react';
+import { FileBox, Trash2, Loader2, FileWarning, FolderOpen, ExternalLink, StopCircle, Search } from 'lucide-react';
 import { listen } from '@tauri-apps/api/event';
+import { openUrl } from '@tauri-apps/plugin-opener';
 import { ModuleCard } from '../ModuleCard';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { useToast } from '../Toast';
@@ -36,6 +37,9 @@ export function BigFilesModule() {
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
   const [currentPath, setCurrentPath] = useState('');
   const [scanBackend, setScanBackend] = useState(''); // "mft" | "walkdir"
+  const [scanStage, setScanStage] = useState('');
+  const [scanMessage, setScanMessage] = useState('');
+  const [backendElapsedMs, setBackendElapsedMs] = useState(0);
   const [scannedCount, setScannedCount] = useState(0);
   const [scanElapsed, setScanElapsed] = useState(0);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -47,15 +51,14 @@ export function BigFilesModule() {
 
     const setupListener = async () => {
       unlisten = await listen<LargeFileScanProgress>('large-file-scan:progress', (event) => {
-        const { current_path, scanned_count, backend } = event.payload;
+        const { current_path, scanned_count, backend, stage, message, elapsed_ms } = event.payload;
         setCurrentPath(current_path);
         setScannedCount(scanned_count);
-        // 只升级不降级：一旦检测到 mft 就锁定
+        setScanStage(stage || '');
+        setScanMessage(message || current_path);
+        setBackendElapsedMs(elapsed_ms || 0);
         if (backend) {
-          setScanBackend(prev => {
-            if (prev === 'mft') return 'mft';
-            return backend;
-          });
+          setScanBackend(backend);
         }
       });
     };
@@ -89,6 +92,9 @@ export function BigFilesModule() {
     setFiles([]);
     setCurrentPath('');
     setScanBackend('');
+    setScanStage('');
+    setScanMessage('');
+    setBackendElapsedMs(0);
     setScannedCount(0);
     setScanElapsed(0);
     scanStartRef.current = performance.now();
@@ -133,6 +139,21 @@ export function BigFilesModule() {
   }, [showToast]);
 
   // 切换文件选中状态（后端风险等级 >= 4 锁定不可选）
+  const handleSearchFile = useCallback(async (path: string) => {
+    try {
+      // 搜索时带上完整路径，帮助用户在删除前确认文件来源和风险。
+      const query = encodeURIComponent(`Windows 文件 ${path} 可以删除吗`);
+      await openUrl(`https://www.bing.com/search?q=${query}`);
+    } catch (err) {
+      console.error('搜索文件用途失败:', err);
+      showToast({
+        type: 'error',
+        title: '打开搜索失败',
+        description: String(err),
+      });
+    }
+  }, [showToast]);
+
   const toggleFileSelection = useCallback((path: string, riskLevel: number) => {
     if (riskLevel >= 4) return;
 
@@ -249,6 +270,9 @@ export function BigFilesModule() {
 
   const isExpanded = expandedModule === 'bigFiles';
   const isScanning = moduleState.status === 'scanning';
+  const displayElapsedSeconds = isScanning
+    ? scanElapsed
+    : Math.round(backendElapsedMs / 1000);
 
   return (
     <>
@@ -343,19 +367,22 @@ export function BigFilesModule() {
             <div className={`px-4 py-2 border-b border-[var(--border-default)] text-xs truncate flex items-center gap-3 ${
               scanBackend === 'mft' ? 'bg-[var(--brand-green-10)]' : 'bg-emerald-500/5'
             }`}>
-              <span className="truncate text-[var(--fg-muted)]">{isScanning ? '正在扫描:' : '扫描完成:'} {currentPath}</span>
+              <span className="truncate text-[var(--fg-muted)]">{isScanning ? '正在扫描:' : '扫描完成:'} {scanMessage || currentPath}</span>
               {scanBackend && (
                 <span className={`shrink-0 text-[10px] px-1.5 py-0.5 rounded font-medium ${
                   scanBackend === 'mft'
                     ? 'bg-[var(--brand-green)] text-white'
                     : 'bg-[var(--bg-hover)] text-[var(--text-muted)]'
                 }`}>
-                  {scanBackend === 'mft' ? '⚡ MFT 混合扫描' : '常规'}
+                  {scanBackend === 'mft' ? '⚡ MFT 全量扫描' : '常规'}
                 </span>
               )}
               <span className="shrink-0 text-[var(--fg-faint)]">{scannedCount.toLocaleString()} 文件</span>
-              {isScanning && scanElapsed > 0 && (
-                <span className="shrink-0 text-[var(--fg-faint)]">{scanElapsed}s</span>
+              {scanStage && scanBackend === 'mft' && (
+                <span className="shrink-0 text-[var(--fg-faint)]">{scanStage}</span>
+              )}
+              {displayElapsedSeconds > 0 && (
+                <span className="shrink-0 text-[var(--fg-faint)]">{displayElapsedSeconds}s</span>
               )}
             </div>
           )}
@@ -380,17 +407,22 @@ export function BigFilesModule() {
               {/* 扫描引擎模式 — 居中醒目展示 */}
               {scanBackend === 'mft' && (
                 <span className="mb-2 px-3 py-1 rounded-full text-xs font-semibold bg-[var(--brand-green-10)] text-[var(--brand-green)] border border-[var(--brand-green-20)]">
-                  ⚡ MFT 混合扫描
+                  ⚡ MFT 全量扫描
                 </span>
               )}
               <p className="text-sm font-medium text-[var(--fg-secondary)]">
-                {scanBackend === 'mft' ? 'MFT加速模式扫描系统盘...'
+                {scanBackend === 'mft' ? 'MFT全量模式扫描系统盘...'
                   : scanBackend === 'walkdir' ? '正在遍历系统盘文件...'
                   : '正在扫描中...'}
               </p>
               <p className="text-xs text-[var(--fg-muted)] mt-1">
                 扫描引擎: {scanBackend || '检测中...'}
               </p>
+              {scanMessage && (
+                <p className="text-xs text-[var(--fg-faint)] mt-1 max-w-md truncate">
+                  {scanMessage}
+                </p>
+              )}
             </div>
           )}
 
@@ -473,6 +505,16 @@ export function BigFilesModule() {
 
                     {/* 操作按钮 */}
                     <div className="flex items-center gap-0.5 shrink-0">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleSearchFile(file.path);
+                        }}
+                        className="p-1.5 hover:bg-[var(--bg-hover)] rounded-lg transition text-[var(--fg-muted)] hover:text-emerald-600"
+                        title="搜索该文件能不能删"
+                      >
+                        <Search className="w-4 h-4" />
+                      </button>
                       <button
                         onClick={(e) => {
                           e.stopPropagation();

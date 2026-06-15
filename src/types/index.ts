@@ -152,6 +152,12 @@ export interface LargeFileScanProgress {
   found_count: number;
   /** 扫描引擎: "mft" | "walkdir" */
   backend: string;
+  /** MFT 扫描阶段，用于定位耗时瓶颈 */
+  stage?: string;
+  /** 后端阶段说明 */
+  message?: string;
+  /** 后端已耗时（毫秒） */
+  elapsed_ms?: number;
 }
 
 /** 应用状态 */

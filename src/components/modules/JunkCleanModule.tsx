@@ -364,13 +364,21 @@ export function JunkCleanModule() {
                 ))}
 
               {scanResult.categories.every((c) => c.files.length === 0) && (
-                <div className="text-center py-8 bg-[var(--bg-base)] rounded-lg">
-                  <p className="text-[var(--fg-muted)] text-sm">🎉 太棒了！没有发现可清理的垃圾文件</p>
-                </div>
+                <EmptyState
+                  icon={Trash2}
+                  title="没有发现可清理的垃圾文件"
+                  description="常见临时文件、缓存和日志都很干净。"
+                  tone="success"
+                  compact
+                />
               )}
             </div>
           ) : moduleState.status === 'idle' ? (
-            <EmptyState />
+            <EmptyState
+              icon={Trash2}
+              title="尚未扫描垃圾文件"
+              description="点击开始扫描，查找系统缓存、临时文件和日志等可清理内容。"
+            />
           ) : null}
         </div>
       </ModuleCard>

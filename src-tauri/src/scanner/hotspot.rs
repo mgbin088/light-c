@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::time::SystemTime;
+use std::time::{Instant, SystemTime};
 use tauri::Emitter;
 use walkdir::WalkDir;
 
@@ -81,6 +81,47 @@ pub struct HotspotScanProgress {
     /// 已完成的一级目录数（进度百分比 = completed_roots / total_first_level_dirs）
     /// 与 scanned_dirs 不同：后者包含子目录，会超过 100%
     pub completed_roots: usize,
+    /// 当前后端：mft / walkdir，用于前端判断是否走了降级方案
+    #[serde(default)]
+    pub backend: String,
+    /// 当前阶段：mft / index / metadata / aggregate / result / walkdir
+    #[serde(default)]
+    pub stage: String,
+    /// 当前阶段展示文案，避免前端只能从 current_dir 猜测瓶颈
+    #[serde(default)]
+    pub message: String,
+    /// 扫描总耗时（毫秒）
+    #[serde(default)]
+    pub elapsed_ms: u64,
+    /// 当前阶段耗时（毫秒）
+    #[serde(default)]
+    pub stage_elapsed_ms: u64,
+}
+
+fn build_hotspot_progress(
+    backend: &str,
+    stage: &str,
+    message: &str,
+    processed: usize,
+    total_size: u64,
+    total_first_level_dirs: usize,
+    completed_roots: usize,
+    scan_start: &Instant,
+    stage_elapsed_ms: u64,
+) -> HotspotScanProgress {
+    HotspotScanProgress {
+        current_dir: message.to_string(),
+        scanned_dirs: processed,
+        found_entries: 0,
+        total_size,
+        total_first_level_dirs,
+        completed_roots,
+        backend: backend.to_string(),
+        stage: stage.to_string(),
+        message: message.to_string(),
+        elapsed_ms: scan_start.elapsed().as_millis() as u64,
+        stage_elapsed_ms,
+    }
 }
 
 /// 全局取消标志，跨线程共享（与 big_files.rs 模式一致）
@@ -518,14 +559,17 @@ impl HotspotScanner {
                 if let Some(app) = app_handle {
                     let _ = app.emit(
                         "hotspot-scan:progress",
-                        HotspotScanProgress {
-                            current_dir: "MFT 直读引擎已就绪，正在读取主文件表...".into(),
-                            scanned_dirs: 0,
-                            found_entries: 0,
-                            total_size: 0,
-                            total_first_level_dirs: total_first_level,
-                            completed_roots: 0,
-                        },
+                        build_hotspot_progress(
+                            "mft",
+                            "mft",
+                            "MFT 直读引擎已就绪，正在读取主文件表...",
+                            0,
+                            0,
+                            total_first_level,
+                            0,
+                            &start_time,
+                            0,
+                        ),
                     );
                 }
 
@@ -535,27 +579,22 @@ impl HotspotScanner {
                     max_depth,
                     track_modified,
                     cancel_flag,
-                    |processed| {
+                    |progress| {
                         // MFT 进度 → 前端事件
                         if let Some(app) = app_handle {
                             let _ = app.emit(
                                 "hotspot-scan:progress",
-                                HotspotScanProgress {
-                                    current_dir: if processed == 0 {
-                                        "MFT 直读引擎已就绪，正在读取主文件表...".into()
-                                    } else {
-                                        format!(
-                                            "MFT 直读扫描中... 已处理 {} 条记录",
-                                            processed
-                                        )
-                                    },
-                                    scanned_dirs: processed,
-                                    found_entries: 0,
-                                    total_size: 0,
-                                    total_first_level_dirs: total_first_level,
-                                    completed_roots: (processed / 50000).min(total_first_level - 1)
-                                        as usize,
-                                },
+                                build_hotspot_progress(
+                                    "mft",
+                                    progress.stage,
+                                    &progress.message,
+                                    progress.processed,
+                                    0,
+                                    total_first_level,
+                                    (progress.processed / 50000).min(total_first_level.saturating_sub(1)),
+                                    &start_time,
+                                    progress.stage_elapsed_ms,
+                                ),
                             );
                         }
                     },
@@ -569,13 +608,17 @@ impl HotspotScanner {
                     ancestor_cache.len()
                 );
 
+                if let Some(root_stats) = ancestor_cache.get(&c_drive) {
+                    // MFT 聚合后的每个目录都包含全部后代，不能把列表项大小再次相加，否则会重复计算祖先目录。
+                    total_size.store(root_stats.total_size, Ordering::Relaxed);
+                }
+
                 // 从 ancestor_cache 构建 all_entries（与 Walkdir 路径一致的逻辑）
                 for (path, stats) in &ancestor_cache {
                     if stats.total_size >= self.size_threshold {
                         let depth = calculate_relative_depth(&c_drive, path);
                         if depth > 0 && depth <= self.max_display_depth {
                             total_scanned.fetch_add(1, Ordering::Relaxed);
-                            total_size.fetch_add(stats.total_size, Ordering::Relaxed);
                             all_entries
                                 .push(Self::build_entry(path, stats, depth as u8, true));
                         }
@@ -667,16 +710,26 @@ impl HotspotScanner {
                     completed_roots.fetch_add(1, Ordering::Relaxed);
 
                     if let Some(app) = app_handle {
+                        let completed = completed_roots.load(Ordering::Relaxed);
+                        let message = format!(
+                            "正在常规遍历 {} ({}/{})",
+                            dir.to_string_lossy(),
+                            completed,
+                            total_first_level
+                        );
                         let _ = app.emit(
                             "hotspot-scan:progress",
-                            HotspotScanProgress {
-                                current_dir: dir.to_string_lossy().to_string(),
-                                scanned_dirs: total_scanned.load(Ordering::Relaxed),
-                                found_entries: 0,
-                                total_size: total_size.load(Ordering::Relaxed),
-                                total_first_level_dirs: total_first_level,
-                                completed_roots: completed_roots.load(Ordering::Relaxed),
-                            },
+                            build_hotspot_progress(
+                                "walkdir",
+                                "walkdir",
+                                &message,
+                                total_scanned.load(Ordering::Relaxed),
+                                total_size.load(Ordering::Relaxed),
+                                total_first_level,
+                                completed,
+                                &start_time,
+                                0,
+                            ),
                         );
                     }
                 }
@@ -702,47 +755,79 @@ impl HotspotScanner {
             });
         }
 
+        let result_stage_start = Instant::now();
+        if let Some(app) = app_handle {
+            let _ = app.emit(
+                "hotspot-scan:progress",
+                build_hotspot_progress(
+                    match backend {
+                        HotspotBackend::Mft => "mft",
+                        HotspotBackend::Walkdir => "walkdir",
+                    },
+                    "result",
+                    "正在生成热点目录列表",
+                    total_scanned.load(Ordering::Relaxed),
+                    total_size.load(Ordering::Relaxed),
+                    total_first_level,
+                    completed_roots.load(Ordering::Relaxed),
+                    &start_time,
+                    0,
+                ),
+            );
+        }
+
+        // 先用聚合缓存建立父子索引，后续热点展开和树形结果都只查内存。
+        // 这样既能保持“展示深度”设置生效，也避免 result 阶段反复 read_dir 触发磁盘 IO。
+        let child_index = build_child_index(
+            &ancestor_cache,
+            &c_drive,
+            self.size_threshold,
+            self.ignore_system_dirs,
+        );
+
         // 热点展开：递归展开容器目录（Windows/Program Files 等），
         // 将排行榜让给用户真正关心的可清理热点（微信/npm/Docker 等）
         // 噪音目录（WinSxS/System32 等）已被过滤
         let mut entries = flatten_hotspots(
             all_entries,
-            &ancestor_cache,
+            &child_index,
             self.top_n,
-            &c_drive,
             true,
-            self.size_threshold, // 使用用户配置的阈值，非硬编码 50MB
-            self.ignore_system_dirs,
         );
 
-        // 对结果条目填充子目录（用于树形展示）
-        // 使用 build_tree_children 直接按父子路径关系构建，不设 5GB 门槛
+        // 按用户设置的展示深度补齐结果树。这里的深度是“从当前热点条目算起”的可见层数，
+        // 与前端 treeDepth 判断保持一致：设置为 4 时，顶级热点 + 3 层子目录都会返回。
         for entry in &mut entries {
             let entry_path = PathBuf::from(&entry.path);
-            let child_max_depth = entry.depth.saturating_add(3); // 每个顶级条目最多再展3层
-            entry.children = build_tree_children(
+            let child_max_depth = entry
+                .depth
+                .saturating_add(self.max_display_depth.saturating_sub(1) as u8);
+            entry.children = build_tree_children_from_index(
                 &entry_path,
-                entry.depth.saturating_add(1),
                 child_max_depth,
-                &ancestor_cache,
-                &c_drive,
-                self.size_threshold,
+                &child_index,
                 true,
-                self.ignore_system_dirs,
             );
         }
 
         let scan_duration_ms = start_time.elapsed().as_millis() as u64;
 
         if let Some(app) = app_handle {
-            let final_progress = HotspotScanProgress {
-                current_dir: "扫描完成".to_string(),
-                scanned_dirs: total_scanned.load(Ordering::Relaxed),
-                found_entries: entries.len(),
-                total_size: total_size.load(Ordering::Relaxed),
-                total_first_level_dirs: total_first_level,
-                completed_roots: completed_roots.load(Ordering::Relaxed),
-            };
+            let mut final_progress = build_hotspot_progress(
+                match backend {
+                    HotspotBackend::Mft => "mft",
+                    HotspotBackend::Walkdir => "walkdir",
+                },
+                "result",
+                "扫描完成，正在刷新列表",
+                total_scanned.load(Ordering::Relaxed),
+                total_size.load(Ordering::Relaxed),
+                total_first_level,
+                completed_roots.load(Ordering::Relaxed),
+                &start_time,
+                result_stage_start.elapsed().as_millis() as u64,
+            );
+            final_progress.found_entries = entries.len();
             let _ = app.emit("hotspot-scan:progress", &final_progress);
         }
 
@@ -1196,57 +1281,84 @@ impl HotspotScanner {
 // ============================================================================
 use crate::scanner::hotspot_engine::fallback_scanner::aggregate_ancestor_stats;
 
-/// 从 ancestor_cache 按父子路径关系构建子节点树
-///
-/// 不设 5GB 门槛，只用 min_size 作为过滤条件，与 AppData 模式保持一致。
-/// 远比 `drill_down_directory_cached` 宽松，确保前端树形结构始终有数据。
-fn build_tree_children(
-    parent: &Path,
-    current_depth: u8,
-    max_depth: u8,
+#[derive(Debug, Clone)]
+struct IndexedChild {
+    path: PathBuf,
+    stats: FolderStats,
+    depth: u8,
+}
+
+type ChildIndex = HashMap<PathBuf, Vec<IndexedChild>>;
+
+/// 将聚合后的目录缓存转换成父子索引，后续结果生成只查内存，不再递归读磁盘目录。
+fn build_child_index(
     cache: &HashMap<PathBuf, FolderStats>,
     root: &Path,
     min_size: u64,
-    is_full_scan: bool,
     ignore_system_dirs: bool,
-) -> Vec<HotspotEntry> {
-    if current_depth > max_depth {
-        return Vec::new();
-    }
-    let mut children: Vec<HotspotEntry> = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(parent) {
-        for e in entries.filter_map(|e| e.ok()) {
-            let p = e.path();
-            let skip_heavy = ignore_system_dirs && is_heavy_system_dir(&p);
-            if !p.is_dir()
-                || is_noise_directory(&p)
-                || skip_heavy
-                || HotspotScanner::should_skip_scan(&p)
-            {
-                continue;
-            }
-            if let Some(stats) = cache.get(&p) {
-                if stats.total_size >= min_size {
-                    let depth = calculate_relative_depth(root, &p);
-                    let mut child =
-                        HotspotScanner::build_entry(&p, stats, depth as u8, is_full_scan);
-                    child.children = build_tree_children(
-                        &p,
-                        current_depth + 1,
-                        max_depth,
-                        cache,
-                        root,
-                        min_size,
-                        is_full_scan,
-                        ignore_system_dirs,
-                    );
-                    children.push(child);
-                }
-            }
+) -> ChildIndex {
+    let mut child_index: ChildIndex = HashMap::with_capacity(cache.len());
+
+    for (path, stats) in cache {
+        let Some(parent) = path.parent() else {
+            continue;
+        };
+        if parent == path || stats.total_size < min_size {
+            continue;
         }
+
+        let skip_heavy = ignore_system_dirs && is_heavy_system_dir(path);
+        if is_noise_directory(path) || skip_heavy || HotspotScanner::should_skip_scan(path) {
+            continue;
+        }
+
+        let depth = calculate_relative_depth(root, path).min(u8::MAX as usize) as u8;
+        child_index
+            .entry(parent.to_path_buf())
+            .or_default()
+            .push(IndexedChild {
+                path: path.clone(),
+                stats: *stats,
+                depth,
+            });
     }
-    children.sort_by(|a, b| b.total_size.cmp(&a.total_size));
-    children.into_iter().take(DRILL_DOWN_TOP_CHILDREN).collect()
+
+    for children in child_index.values_mut() {
+        children.sort_by(|a, b| b.stats.total_size.cmp(&a.stats.total_size));
+    }
+
+    child_index
+}
+
+/// 从父子索引构建结果页树形子节点，深度严格跟随前端“展示深度”设置。
+fn build_tree_children_from_index(
+    parent: &Path,
+    max_depth: u8,
+    child_index: &ChildIndex,
+    is_full_scan: bool,
+) -> Vec<HotspotEntry> {
+    let Some(children) = child_index.get(parent) else {
+        return Vec::new();
+    };
+
+    children
+        .iter()
+        .filter(|child| child.depth <= max_depth)
+        .take(DRILL_DOWN_TOP_CHILDREN)
+        .map(|child| {
+            let mut entry =
+                HotspotScanner::build_entry(&child.path, &child.stats, child.depth, is_full_scan);
+            if child.depth < max_depth {
+                entry.children = build_tree_children_from_index(
+                    &child.path,
+                    max_depth,
+                    child_index,
+                    is_full_scan,
+                );
+            }
+            entry
+        })
+        .collect()
 }
 
 // ============================================================================
@@ -1277,43 +1389,29 @@ fn should_expand_directory(entry: &HotspotEntry) -> bool {
     false
 }
 
-/// 从缓存中查找目录的直接子目录（已排序，已过滤噪音）
-/// `min_size` 使用用户配置的大小阈值，而非硬编码的 50MB
+/// 从父子索引中查找目录的直接子目录。
+/// 索引已经完成大小、系统目录与噪音目录过滤，避免热点展开阶段再次触发 read_dir。
 fn find_meaningful_children(
     dir: &Path,
-    cache: &HashMap<PathBuf, FolderStats>,
-    c_drive: &Path,
+    child_index: &ChildIndex,
     is_full_scan: bool,
-    min_size: u64,
-    ignore_system_dirs: bool,
 ) -> Vec<HotspotEntry> {
-    let mut children: Vec<HotspotEntry> = Vec::new();
-
-    if let Ok(entries) = std::fs::read_dir(dir) {
-        for entry in entries.filter_map(|e| e.ok()) {
-            let sub_path = entry.path();
-            let skip_heavy = ignore_system_dirs && is_heavy_system_dir(&sub_path);
-            if !sub_path.is_dir()
-                || HotspotScanner::should_skip_scan(&sub_path)
-                || skip_heavy
-                || is_noise_directory(&sub_path)
-            {
-                continue;
-            }
-
-            if let Some(stats) = cache.get(&sub_path) {
-                if stats.total_size >= min_size {
-                    let depth = calculate_relative_depth(c_drive, &sub_path);
-                    children.push(HotspotScanner::build_entry(
-                        &sub_path, stats, depth as u8, is_full_scan,
-                    ));
-                }
-            }
-        }
-    }
-
-    children.sort_by(|a, b| b.total_size.cmp(&a.total_size));
-    children
+    child_index
+        .get(dir)
+        .map(|children| {
+            children
+                .iter()
+                .map(|child| {
+                    HotspotScanner::build_entry(
+                        &child.path,
+                        &child.stats,
+                        child.depth,
+                        is_full_scan,
+                    )
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// BinaryHeap 包装结构：按 total_size 降序排列 HotspotEntry
@@ -1350,12 +1448,9 @@ impl PartialOrd for SizeOrd {
 /// 噪音目录（WinSxS/System32 等）始终被过滤，不进入任何队列
 fn flatten_hotspots(
     all_entries: Vec<HotspotEntry>,
-    cache: &HashMap<PathBuf, FolderStats>,
+    child_index: &ChildIndex,
     top_n: usize,
-    c_drive: &Path,
     is_full_scan: bool,
-    min_size: u64,
-    ignore_system_dirs: bool,
 ) -> Vec<HotspotEntry> {
     // 过滤掉噪音目录，放入 BinaryHeap（大顶堆，O(log n) 操作）
     let mut candidates: BinaryHeap<SizeOrd> = all_entries
@@ -1373,7 +1468,7 @@ fn flatten_hotspots(
 
         if should_expand_directory(&entry) {
             let dir_path = PathBuf::from(&entry.path);
-            let children = find_meaningful_children(&dir_path, cache, c_drive, is_full_scan, min_size, ignore_system_dirs);
+            let children = find_meaningful_children(&dir_path, child_index, is_full_scan);
 
             if children.is_empty() {
                 if seen.insert(dir_path) {

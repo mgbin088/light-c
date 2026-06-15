@@ -8,6 +8,7 @@ import { createPortal } from 'react-dom';
 import { Package, Loader2, Trash2, FolderOpen, AlertTriangle, CheckCircle2, Smartphone, HardDrive, ChevronDown, ChevronUp, XCircle } from 'lucide-react';
 import { ModuleCard } from '../ModuleCard';
 import { ConfirmDialog } from '../ConfirmDialog';
+import { EmptyState } from '../EmptyState';
 import { useDashboard } from '../../contexts/DashboardContext';
 import {
   scanUninstallLeftovers,
@@ -441,6 +442,16 @@ export function LeftoversModule() {
         onScan={handleScan}
         error={moduleState.error}
       >
+        {moduleState.status === 'idle' && !scanResult && (
+          <div className="p-5">
+            <EmptyState
+              icon={Package}
+              title="尚未扫描卸载残留"
+              description="点击开始扫描，检索 AppData、ProgramData 等位置中可能遗留的软件目录。"
+            />
+          </div>
+        )}
+
         {/* 扫描结果内容 */}
         {scanResult && scanResult.leftovers.length > 0 && (
           <div className="p-5 space-y-4">
@@ -677,10 +688,13 @@ export function LeftoversModule() {
 
         {/* 空状态 */}
         {scanResult && scanResult.leftovers.length === 0 && (
-          <div className="p-8 text-center">
-            <CheckCircle2 className="w-12 h-12 text-[var(--brand-green)] mx-auto mb-3" />
-            <p className="text-sm font-medium text-[var(--text-primary)]">没有发现卸载残留</p>
-            <p className="text-xs text-[var(--text-muted)] mt-1">您的系统很干净！</p>
+          <div className="p-5">
+            <EmptyState
+              icon={CheckCircle2}
+              title="没有发现卸载残留"
+              description="未检测到高置信度的软件残留目录。"
+              tone="success"
+            />
           </div>
         )}
       </ModuleCard>

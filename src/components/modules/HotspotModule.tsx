@@ -60,6 +60,84 @@ function middleEllipsis(path: string, maxLength: number = 45): string {
   return `${start}\\...\\${truncatedEnd}`;
 }
 
+function formatDuration(ms?: number): string {
+  if (!ms || ms <= 0) return '0.0s';
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
+function getProgressStageLabel(stage?: string): string {
+  switch (stage) {
+    case 'mft':
+      return '枚举 MFT';
+    case 'index':
+      return '建立索引';
+    case 'metadata':
+      return '读取大小';
+    case 'aggregate':
+      return '聚合目录';
+    case 'result':
+      return '生成结果';
+    case 'walkdir':
+      return '常规遍历';
+    default:
+      return '扫描中';
+  }
+}
+
+// 诊断面板同时服务“扫描中”和“扫描完成”状态，避免两套指标重复展示。
+function HotspotDiagnostics({
+  logs,
+  totalElapsedMs,
+  currentProgress,
+  compact = false,
+}: {
+  logs: HotspotScanProgress[];
+  totalElapsedMs?: number;
+  currentProgress?: HotspotScanProgress | null;
+  compact?: boolean;
+}) {
+  if (logs.length === 0 && !totalElapsedMs && !currentProgress) return null;
+
+  const latestLog = currentProgress || logs[logs.length - 1];
+  // 相同阶段在监听器里已经合并，这里只负责过滤无效阶段，保持布局稳定。
+  const visibleLogs = logs.filter((log) => log.stage && log.stage_elapsed_ms !== undefined);
+  const processedCount = latestLog?.scanned_dirs || latestLog?.found_entries || 0;
+
+  return (
+    <div className={`rounded-xl bg-[var(--bg-main)] border border-[var(--border-color)] px-4 py-3 text-xs ${compact ? 'space-y-2' : 'space-y-3'}`}>
+      <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-2 md:gap-4">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="shrink-0 px-2 py-0.5 rounded-md bg-[var(--brand-green)] text-white font-medium">
+            {getProgressStageLabel(latestLog?.stage)}
+          </span>
+          <span className="truncate text-[var(--text-primary)]" title={latestLog?.message || '本次扫描阶段耗时'}>
+            {latestLog?.message || '本次扫描阶段耗时'}
+          </span>
+        </div>
+        <div className="flex items-center justify-start md:justify-end gap-4 text-[var(--text-muted)] tabular-nums">
+          {processedCount > 0 && <span>已处理 {processedCount.toLocaleString()}</span>}
+          {totalElapsedMs !== undefined && <span>总耗时 {formatDuration(totalElapsedMs)}</span>}
+        </div>
+      </div>
+      {visibleLogs.length > 0 && (
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+          {visibleLogs.map((log, index) => (
+            <div
+              key={`${log.stage}-${index}`}
+              className="min-w-0 rounded-lg bg-[var(--bg-card)] border border-[var(--border-color)] px-2.5 py-2"
+            >
+              <div className="truncate text-[var(--text-muted)]">{getProgressStageLabel(log.stage)}</div>
+              <div className="mt-0.5 text-[var(--text-primary)] font-semibold tabular-nums">
+                {formatDuration(log.stage_elapsed_ms)}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /**
  * 获取父目录类型的显示颜色
  */
@@ -139,15 +217,29 @@ function HotspotItem({ entry, rank, maxSize, isFullScan, onOpenFolder, onCleanup
       />
       
       <div className="relative flex items-center gap-3">
-        {/* 排名 */}
-        <div className={`flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold ${
-          entry.is_protected
-            ? 'bg-red-500 text-white'
-            : rank <= 3 
-              ? 'bg-[var(--brand-green)] text-white' 
-              : 'bg-[var(--bg-card)] text-[var(--text-secondary)] border border-[var(--border-color)]'
-        }`}>
-          {rank}
+        {/* 文件夹徽标：用文件夹作为主视觉，序号作为角标，避免纯序号块和树线抢视觉焦点。 */}
+        <div className="flex-shrink-0 relative w-10 h-9 flex items-center justify-center">
+          <div className={`relative w-9 h-7 rounded-md shadow-sm ${
+            entry.is_protected
+              ? 'bg-red-400'
+              : rank <= 3
+                ? 'bg-amber-400'
+                : 'bg-amber-300'
+          }`}>
+            <div className={`absolute -top-1 left-1.5 h-2.5 w-4 rounded-t-md ${
+              entry.is_protected
+                ? 'bg-red-300'
+                : rank <= 3
+                  ? 'bg-amber-300'
+                  : 'bg-amber-200'
+            }`} />
+            <div className="absolute inset-x-0 bottom-0 h-5 rounded-md bg-gradient-to-b from-yellow-300 to-amber-500" />
+          </div>
+          <span className={`absolute -right-0.5 -bottom-0.5 min-w-5 h-5 px-1 rounded-full flex items-center justify-center text-[10px] font-bold shadow-sm ${
+            entry.is_protected ? 'bg-red-500 text-white' : 'bg-[var(--brand-green)] text-white'
+          }`}>
+            {rank}
+          </span>
         </div>
         
         {/* 文件夹信息 */}
@@ -331,6 +423,7 @@ export function HotspotModule() {
 
   // ====== 扫描进度状态（仅深度扫描时有效） ======
   const [scanProgress, setScanProgress] = useState<HotspotScanProgress | null>(null);
+  const [progressLogs, setProgressLogs] = useState<HotspotScanProgress[]>([]);
   const [scanElapsed, setScanElapsed] = useState(0);
 
   // ====== 下钻模态框状态 ======
@@ -363,7 +456,16 @@ export function HotspotModule() {
 
     const setupListeners = async () => {
       unlistenProgress = await listen<HotspotScanProgress>('hotspot-scan:progress', (event) => {
-        setScanProgress(event.payload);
+        const progress = event.payload;
+        setScanProgress(progress);
+        setProgressLogs((prev) => {
+          const last = prev[prev.length - 1];
+          // 相同阶段只保留最新一条，避免 MFT 每 10k 条刷屏导致前端日志噪音过大。
+          if (last?.stage === progress.stage) {
+            return [...prev.slice(0, -1), progress].slice(-6);
+          }
+          return [...prev, progress].slice(-6);
+        });
       });
       unlistenCancelled = await listen('hotspot-scan:cancelled', () => {
         // 扫描被取消，UI 由 handleScan 的 catch/finally 处理
@@ -397,6 +499,7 @@ export function HotspotModule() {
     setShowAll(false);
     setSelectedPath(null);
     setScanProgress(null);
+    setProgressLogs([]);
 
     try {
       // 根据深度扫描开关决定扫描模式（全盘扫描条目更多）
@@ -558,11 +661,11 @@ export function HotspotModule() {
             {/* 扫描引擎模式标签 — MFT 直读 vs 常规遍历 */}
             {fullScanEnabled && scanProgress && (
               <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
-                scanProgress.current_dir.includes('MFT')
+                scanProgress.backend === 'mft'
                   ? 'bg-[var(--brand-green-10)] text-[var(--brand-green)]'
                   : 'bg-[var(--bg-hover)] text-[var(--text-muted)]'
               }`}>
-                {scanProgress.current_dir.includes('MFT') ? 'MFT 直读' : '常规遍历'}
+                {scanProgress.backend === 'mft' ? 'MFT 直读' : '常规遍历'}
               </span>
             )}
           </p>
@@ -573,24 +676,14 @@ export function HotspotModule() {
             <p className="text-xs mt-1 text-amber-500">⚠ 已关闭系统目录过滤，扫描时间可能较长</p>
           )}
 
-          {/* 深度扫描进度：仅显示当前目录 + 已扫描目录数 */}
+          {/* 深度扫描进度：展示关键阶段和耗时，用于判断瓶颈在枚举、读大小还是聚合。 */}
           {fullScanEnabled && scanProgress && (
-            <div className="mt-3 w-full max-w-sm bg-[var(--bg-main)] rounded-xl px-4 py-3 space-y-1.5">
-              <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
-                <span className="shrink-0">正在扫描</span>
-                <span className="truncate text-[var(--text-primary)] font-medium" title={scanProgress.current_dir}>
-                  {scanProgress.current_dir}
-                </span>
-              </div>
-              <div className="flex items-center justify-between text-xs text-[var(--text-faint)]">
-                <span>
-                {scanProgress.scanned_dirs > 0
-                  ? <>已扫描 <span className="text-[var(--text-primary)] font-medium">{scanProgress.scanned_dirs.toLocaleString()}</span> 个目录</>
-                  : <span className="animate-pulse">正在读取 NTFS 主文件表...</span>
-                }
-                </span>
-                {scanElapsed > 0 && fullScanEnabled && <span>{scanElapsed}s</span>}
-              </div>
+            <div className="mt-3 w-full max-w-2xl">
+              <HotspotDiagnostics
+                logs={progressLogs}
+                totalElapsedMs={scanProgress.elapsed_ms || scanElapsed * 1000}
+                currentProgress={scanProgress}
+              />
             </div>
           )}
 
@@ -631,6 +724,14 @@ export function HotspotModule() {
             </div>
             <span>耗时 {(scanResult.scan_duration_ms / 1000).toFixed(1)}s</span>
           </div>
+
+          {scanResult.is_full_scan && (
+            <HotspotDiagnostics
+              logs={progressLogs}
+              totalElapsedMs={scanResult.scan_duration_ms}
+              compact
+            />
+          )}
 
           {/* 目录列表 */}
           <div className="space-y-2">

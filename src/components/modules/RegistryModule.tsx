@@ -11,6 +11,7 @@ import { createPortal } from 'react-dom';
 import { Database, Loader2, Trash2, CheckCircle2, Shield } from 'lucide-react';
 import { ModuleCard } from '../ModuleCard';
 import { ConfirmDialog } from '../ConfirmDialog';
+import { EmptyState } from '../EmptyState';
 import { useDashboard } from '../../contexts/DashboardContext';
 import {
   scanRegistryRedundancy,
@@ -203,6 +204,16 @@ export function RegistryModule() {
         onScan={handleScan}
         error={moduleState.error}
       >
+        {moduleState.status === 'idle' && !scanResult && (
+          <div className="p-5">
+            <EmptyState
+              icon={Database}
+              title="尚未扫描注册表冗余"
+              description="点击开始扫描，检测已卸载程序遗留的孤立注册表引用。"
+            />
+          </div>
+        )}
+
         {scanResult && scanResult.entries.length > 0 && (
           <div className="p-5 space-y-4">
             {/* 安全提示 */}
@@ -343,10 +354,13 @@ export function RegistryModule() {
         )}
 
         {scanResult && scanResult.entries.length === 0 && (
-          <div className="p-8 text-center">
-            <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto mb-3" />
-            <p className="text-sm font-medium text-[var(--text-primary)]">没有发现注册表冗余</p>
-            <p className="text-xs text-[var(--text-muted)] mt-1">您的注册表很干净！</p>
+          <div className="p-5">
+            <EmptyState
+              icon={CheckCircle2}
+              title="没有发现注册表冗余"
+              description="未检测到已卸载程序遗留的孤立注册表引用。"
+              tone="success"
+            />
           </div>
         )}
       </ModuleCard>
