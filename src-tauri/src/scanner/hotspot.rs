@@ -138,6 +138,11 @@ pub fn cancel_hotspot_scan() {
     HOTSPOT_SCAN_CANCELLED.store(true, Ordering::SeqCst);
 }
 
+/// 暴露给 MFT 引擎的取消状态查询，避免 MFT 阶段无视前端停止按钮继续跑完整流程。
+pub(crate) fn is_hotspot_scan_cancelled() -> bool {
+    HOTSPOT_SCAN_CANCELLED.load(Ordering::SeqCst)
+}
+
 // ============================================================================
 // 危险目录黑名单配置
 // 这些目录在深度扫描时仅统计大小，严禁执行任何删除操作
@@ -820,7 +825,7 @@ impl HotspotScanner {
                     HotspotBackend::Walkdir => "walkdir",
                 },
                 "result",
-                "扫描完成，正在刷新列表",
+                "扫描完成",
                 total_scanned.load(Ordering::Relaxed),
                 total_size.load(Ordering::Relaxed),
                 total_first_level,
