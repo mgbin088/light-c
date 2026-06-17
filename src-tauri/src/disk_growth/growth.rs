@@ -9,7 +9,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
 use super::mft_scan::{
-    scan_system_drive_with_progress, DirSizeEntry, DiskGrowthPhaseDuration, DiskGrowthScanProgress,
+    normalize_path, scan_system_drive_with_progress, DirSizeEntry, DiskGrowthPhaseDuration,
+    DiskGrowthScanProgress, FileSnapshotEntry,
 };
 use super::snapshot::{build_snapshot, DiskSnapshot, DiskSnapshotEntry, DiskSnapshotManager};
 
@@ -21,6 +22,8 @@ const DEFAULT_MAX_CHANGE_ENTRIES: usize = 300;
 const MIN_CHANGE_ENTRIES: usize = 50;
 const MAX_CHANGE_ENTRIES: usize = 1000;
 const MAX_DETAIL_ENTRIES: usize = 50;
+const DEFAULT_MAX_FILE_DETAIL_ENTRIES: usize = 200;
+const MAX_FILE_DETAIL_ENTRIES: usize = 1000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -102,6 +105,26 @@ pub struct DiskScanAndAnalyzeResponse {
     pub growth: DiskGrowthReport,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiskGrowthFileDetailEntry {
+    pub path: String,
+    pub name: String,
+    pub old_size: u64,
+    pub new_size: u64,
+    pub diff: i64,
+    pub level: DiskGrowthLevel,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiskGrowthFileDetailsResponse {
+    pub path: String,
+    pub previous_scan_time: String,
+    pub current_scan_time: String,
+    pub entries: Vec<DiskGrowthFileDetailEntry>,
+    pub total_changed_files: usize,
+    pub returned_files: usize,
+}
+
 pub fn scan_and_analyze_system_drive_with_progress<F>(
     progress: &F,
     max_change_entries: Option<usize>,
@@ -150,6 +173,69 @@ where
             decreased_size,
         },
         growth,
+    })
+}
+
+pub fn get_file_change_details(
+    path: String,
+    max_entries: Option<usize>,
+) -> Result<DiskGrowthFileDetailsResponse, String> {
+    let manager = DiskSnapshotManager::new()?;
+    let Some((previous, current)) = manager.load_latest_two_snapshots()? else {
+        return Err("至少完成两次 C 盘全盘扫描后，才能查看文件级变化明细".to_string());
+    };
+
+    if previous.file_entries.is_empty() || current.file_entries.is_empty() {
+        return Err("最近快照不包含文件级明细，请再完成一次全盘扫描后重试".to_string());
+    }
+
+    let normalized_path = normalize_query_path(&path);
+    let max_entries = max_entries
+        .unwrap_or(DEFAULT_MAX_FILE_DETAIL_ENTRIES)
+        .clamp(1, MAX_FILE_DETAIL_ENTRIES);
+    let previous_map = file_snapshot_map(&previous.file_entries, &normalized_path);
+    let current_map = file_snapshot_map(&current.file_entries, &normalized_path);
+    let mut all_paths: HashSet<String> = previous_map.keys().cloned().collect();
+    all_paths.extend(current_map.keys().cloned());
+
+    let mut entries: Vec<DiskGrowthFileDetailEntry> = all_paths
+        .into_iter()
+        .filter_map(|file_path| {
+            let old_size = previous_map.get(&file_path).copied().unwrap_or(0);
+            let new_size = current_map.get(&file_path).copied().unwrap_or(0);
+            let diff = new_size as i64 - old_size as i64;
+            if diff == 0 {
+                return None;
+            }
+
+            Some(DiskGrowthFileDetailEntry {
+                name: display_name_from_path(&file_path),
+                path: file_path,
+                old_size,
+                new_size,
+                diff,
+                level: determine_level(diff, old_size),
+            })
+        })
+        .collect();
+
+    entries.sort_by(|left, right| {
+        right
+            .diff
+            .abs()
+            .cmp(&left.diff.abs())
+            .then_with(|| left.path.cmp(&right.path))
+    });
+    let total_changed_files = entries.len();
+    entries.truncate(max_entries);
+
+    Ok(DiskGrowthFileDetailsResponse {
+        path: normalized_path,
+        previous_scan_time: previous.date,
+        current_scan_time: current.date,
+        returned_files: entries.len(),
+        total_changed_files,
+        entries,
     })
 }
 
@@ -246,6 +332,27 @@ fn snapshot_map(entries: &[DiskSnapshotEntry]) -> HashMap<String, u64> {
         .iter()
         .map(|entry| (entry.path.clone(), entry.size))
         .collect()
+}
+
+fn file_snapshot_map(entries: &[FileSnapshotEntry], parent_path: &str) -> HashMap<String, u64> {
+    entries
+        .iter()
+        .filter(|entry| is_same_or_child_path(&entry.path, parent_path))
+        .map(|entry| (entry.path.clone(), entry.size))
+        .collect()
+}
+
+fn normalize_query_path(path: &str) -> String {
+    normalize_path(path).trim_end_matches('/').to_string()
+}
+
+fn is_same_or_child_path(path: &str, parent_path: &str) -> bool {
+    if path == parent_path {
+        return true;
+    }
+    let prefix = format!("{}/", parent_path.trim_end_matches('/'));
+    // 文件级明细只在用户点击的目录范围内比较，避免全盘文件快照一次性进入排序。
+    path.starts_with(&prefix)
 }
 
 fn remove_redundant_parent_entries(entries: &mut Vec<DiskGrowthEntry>) {

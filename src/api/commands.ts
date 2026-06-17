@@ -958,6 +958,36 @@ export interface DiskGrowthDetailEntry {
   level: 'significant' | 'fast' | 'minor' | 'stable' | 'decreased' | 'new';
 }
 
+export interface DiskGrowthFileDetailEntry {
+  /** 发生变化的文件路径 */
+  path: string;
+  /** 文件名，用于弹窗列表展示 */
+  name: string;
+  /** 上次快照大小 */
+  old_size: number;
+  /** 本次快照大小 */
+  new_size: number;
+  /** 与上次快照相比的变化量，正数为新增，负数为减少 */
+  diff: number;
+  /** 文件变化级别 */
+  level: 'significant' | 'fast' | 'minor' | 'stable' | 'decreased' | 'new';
+}
+
+export interface DiskGrowthFileDetailsResponse {
+  /** 查询目录 */
+  path: string;
+  /** 上次扫描时间 */
+  previous_scan_time: string;
+  /** 本次扫描时间 */
+  current_scan_time: string;
+  /** 文件级变化明细 */
+  entries: DiskGrowthFileDetailEntry[];
+  /** 实际变化文件数量 */
+  total_changed_files: number;
+  /** 本次返回文件数量 */
+  returned_files: number;
+}
+
 export interface DiskGrowthEntry {
   /** 目录路径 */
   path: string;
@@ -1095,6 +1125,13 @@ export async function scanDiskGrowth(maxChangeEntries?: number): Promise<DiskGro
 
 export async function cancelDiskGrowthScan(): Promise<void> {
   return invoke<void>('cancel_disk_growth_scan');
+}
+
+export async function getDiskGrowthFileDetails(
+  path: string,
+  maxEntries?: number
+): Promise<DiskGrowthFileDetailsResponse> {
+  return invoke<DiskGrowthFileDetailsResponse>('get_disk_growth_file_details', { path, maxEntries });
 }
 
 // ============================================================================

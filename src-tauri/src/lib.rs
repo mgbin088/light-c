@@ -111,6 +111,7 @@ pub fn run() {
             // C 盘全盘变化分析
             scan_disk_growth,
             cancel_disk_growth_scan,
+            get_disk_growth_file_details,
             // 数据目录管理
             get_data_directory,
             set_data_directory,

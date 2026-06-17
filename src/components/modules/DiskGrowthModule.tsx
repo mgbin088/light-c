@@ -28,10 +28,13 @@ import { useSettings } from '../../contexts';
 import {
   checkAdminPrivilege,
   cancelDiskGrowthScan,
+  getDiskGrowthFileDetails,
   openInFolder,
   scanDiskGrowth,
   type DiskGrowthAnalyzeEntry,
   type DiskGrowthEntry,
+  type DiskGrowthFileDetailEntry,
+  type DiskGrowthFileDetailsResponse,
   type DiskGrowthReport,
   type DiskGrowthScanProgress,
   type DiskGrowthScanResponse,
@@ -342,14 +345,93 @@ function DiskGrowthDetailsModal({
   onClose: () => void;
   onOpenFolder: (path: string) => void;
 }) {
+  const [visible, setVisible] = useState(false);
+  const [fileDetails, setFileDetails] = useState<DiskGrowthFileDetailsResponse | null>(null);
+  const [fileLoading, setFileLoading] = useState(false);
+  const [fileError, setFileError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!entry) return;
+
+    let cancelled = false;
+    setVisible(false);
+    setFileDetails(null);
+    setFileError(null);
+    setFileLoading(true);
+    const frame = window.requestAnimationFrame(() => setVisible(true));
+
+    // 文件级明细按需懒加载，避免主扫描结果一次性携带几十万文件记录。
+    getDiskGrowthFileDetails(entry.path, 200)
+      .then((result) => {
+        if (!cancelled) setFileDetails(result);
+      })
+      .catch((err) => {
+        if (!cancelled) setFileError(String(err));
+      })
+      .finally(() => {
+        if (!cancelled) setFileLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+      window.cancelAnimationFrame(frame);
+    };
+  }, [entry]);
+
   if (!entry) return null;
 
   const style = getGrowthStyle(entry.level);
   const details = entry.details ?? [];
+  const handleClose = () => {
+    setVisible(false);
+    window.setTimeout(onClose, 160);
+  };
+  const renderFileRows = (files: DiskGrowthFileDetailEntry[]) =>
+    files.map((file) => {
+      const fileStyle = getGrowthStyle(file.level);
+      return (
+        <div
+          key={file.path}
+          className="flex items-center gap-3 px-4 py-2.5 hover:bg-[var(--bg-hover)] transition-colors"
+        >
+          <div className="flex-1 min-w-0">
+            <p className="text-[13px] text-[var(--text-primary)] truncate" title={file.path}>
+              {file.name}
+            </p>
+            <p className="text-[11px] text-[var(--text-faint)] truncate" title={file.path}>
+              {file.path}
+            </p>
+          </div>
+          <span className="w-20 text-right text-[13px] font-medium text-[var(--text-primary)] tabular-nums">
+            {formatSize(file.new_size)}
+          </span>
+          <span className={`w-24 text-right text-[13px] font-medium tabular-nums ${fileStyle.color}`}>
+            {formatDiff(file.diff)}
+          </span>
+          <button
+            onClick={() => onOpenFolder(file.path)}
+            className="w-10 flex justify-end p-1.5 rounded-lg text-[var(--text-muted)] hover:bg-[var(--brand-green-10)] hover:text-[var(--brand-green)] transition"
+            title="打开所在位置"
+          >
+            <FolderOpen className="w-4 h-4" />
+          </button>
+        </div>
+      );
+    });
 
   return (
-    <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/40 backdrop-blur-sm">
-      <div className="w-[620px] max-w-[calc(100vw-32px)] max-h-[80vh] rounded-2xl bg-[var(--bg-card)] shadow-2xl border border-[var(--border-color)] overflow-hidden">
+    <div
+      className={`fixed inset-0 z-[10000] flex items-center justify-center bg-black/40 backdrop-blur-sm transition-opacity duration-150 ${
+        visible ? 'opacity-100' : 'opacity-0'
+      }`}
+      onClick={handleClose}
+    >
+      <div
+        className={`w-[720px] max-w-[calc(100vw-32px)] max-h-[84vh] rounded-2xl bg-[var(--bg-card)] shadow-2xl border border-[var(--border-color)] overflow-hidden transition-all duration-150 ${
+          visible ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-95 translate-y-2'
+        }`}
+        onClick={(event) => event.stopPropagation()}
+      >
         <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border-color)]">
           <div className="min-w-0">
             <h3 className="text-sm font-semibold text-[var(--text-primary)]">变化明细</h3>
@@ -358,14 +440,14 @@ function DiskGrowthDetailsModal({
             </p>
           </div>
           <button
-            onClick={onClose}
+            onClick={handleClose}
             className="p-1.5 rounded-lg text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        <div className="p-5 space-y-4 overflow-y-auto max-h-[calc(80vh-72px)]">
+        <div className="p-5 space-y-4 overflow-y-auto max-h-[calc(84vh-72px)]">
           <div className="grid grid-cols-3 gap-3">
             <div className="rounded-xl bg-[var(--bg-main)] px-3 py-2">
               <p className="text-[11px] text-[var(--text-muted)]">上次大小</p>
@@ -385,6 +467,40 @@ function DiskGrowthDetailsModal({
                 {formatDiff(entry.diff)}
               </p>
             </div>
+          </div>
+
+          <div className="rounded-xl bg-[var(--bg-main)] border border-[var(--border-color)] overflow-hidden">
+            <div className="flex items-center gap-3 px-4 py-2 border-b border-[var(--border-color)] text-[11px] text-[var(--text-faint)]">
+              <span className="flex-1">文件级变化</span>
+              <span className="w-20 text-right">当前大小</span>
+              <span className="w-24 text-right">变化量</span>
+              <span className="w-10" />
+            </div>
+            {fileLoading ? (
+              <div className="flex items-center justify-center gap-2 px-4 py-8 text-sm text-[var(--text-muted)]">
+                <Loader2 className="w-4 h-4 animate-spin text-[var(--brand-green)]" />
+                正在加载文件级变化明细...
+              </div>
+            ) : fileError ? (
+              <div className="px-4 py-8 text-center">
+                <p className="text-sm text-[var(--text-muted)]">暂时无法查看文件级明细</p>
+                <p className="mt-1 text-xs text-[var(--text-faint)]">{fileError}</p>
+              </div>
+            ) : fileDetails && fileDetails.entries.length > 0 ? (
+              <>
+                {renderFileRows(fileDetails.entries)}
+                {fileDetails.total_changed_files > fileDetails.returned_files && (
+                  <div className="px-4 py-2 text-center text-[11px] text-[var(--text-faint)] border-t border-[var(--border-color)]">
+                    已展示变化最大的 {fileDetails.returned_files} 个文件，共 {fileDetails.total_changed_files} 个文件发生变化
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="px-4 py-8 text-center">
+                <p className="text-sm text-[var(--text-muted)]">暂无文件级变化明细</p>
+                <p className="mt-1 text-xs text-[var(--text-faint)]">可能是最近快照尚未包含文件级数据，或变化集中在更深层目录聚合中。</p>
+              </div>
+            )}
           </div>
 
           <div className="rounded-xl bg-[var(--bg-main)] border border-[var(--border-color)] overflow-hidden">
@@ -437,7 +553,7 @@ function DiskGrowthDetailsModal({
           </div>
 
           <p className="text-[11px] text-[var(--text-faint)]">
-            说明：这里展示的是该目录下一级子目录的空间变化，用于继续定位来源，不代表这些目录可以直接删除。
+            说明：文件级明细按需加载，只展示变化最大的前 200 项；目录和文件变化仅用于定位来源，不代表可以直接删除。
           </p>
         </div>
       </div>
