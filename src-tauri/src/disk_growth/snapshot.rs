@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
@@ -42,6 +43,19 @@ pub struct DiskFileShardEntry {
     pub parent: String,
     pub name: String,
     pub size: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct FileSnapshotDiffEntry {
+    pub path: String,
+    pub old_size: u64,
+    pub new_size: u64,
+}
+
+struct SubtreeDiffCollector {
+    entries: Vec<FileSnapshotDiffEntry>,
+    max_entries: usize,
+    total_changed_files: usize,
 }
 
 pub struct DiskSnapshotManager {
@@ -197,6 +211,39 @@ impl DiskSnapshotManager {
             .collect())
     }
 
+    pub fn collect_subtree_file_diffs(
+        &self,
+        previous_snapshot_path: &Path,
+        previous_snapshot: &DiskSnapshot,
+        current_snapshot_path: &Path,
+        current_snapshot: &DiskSnapshot,
+        parent_path: &str,
+        max_entries: usize,
+    ) -> Result<(Vec<FileSnapshotDiffEntry>, usize), String> {
+        let parent = normalize_path(parent_path)
+            .trim_end_matches('/')
+            .to_string();
+        let prefix = format!("{}/", parent);
+        let previous_shard_dir = self.file_shard_dir(previous_snapshot_path);
+        let current_shard_dir = self.file_shard_dir(current_snapshot_path);
+        if previous_shard_dir.exists() && current_shard_dir.exists() {
+            return self.collect_subtree_shard_diffs(
+                &previous_shard_dir,
+                &current_shard_dir,
+                &prefix,
+                max_entries,
+            );
+        }
+
+        // 旧版快照兼容：旧主 JSON 本身已经把文件明细读入内存，这里只在没有分片时回退。
+        Ok(collect_subtree_legacy_diffs(
+            previous_snapshot,
+            current_snapshot,
+            &prefix,
+            max_entries,
+        ))
+    }
+
     pub fn has_file_detail_storage(&self, snapshot_path: &Path, snapshot: &DiskSnapshot) -> bool {
         // 新版快照使用旁路分片，旧版快照可能仍把文件级明细塞在主 JSON 里；两者都算可查询。
         self.file_shard_dir(snapshot_path).exists() || !snapshot.file_entries.is_empty()
@@ -304,6 +351,32 @@ impl DiskSnapshotManager {
         Ok(entries)
     }
 
+    fn collect_subtree_shard_diffs(
+        &self,
+        previous_shard_dir: &Path,
+        current_shard_dir: &Path,
+        parent_prefix: &str,
+        max_entries: usize,
+    ) -> Result<(Vec<FileSnapshotDiffEntry>, usize), String> {
+        let mut collector = SubtreeDiffCollector::new(max_entries);
+        for index in 0..FILE_SHARD_BUCKETS {
+            let shard_name = format!("{:03}.jsonl", index);
+            let previous_shard_path = previous_shard_dir.join(&shard_name);
+            let current_shard_path = current_shard_dir.join(&shard_name);
+            let mut previous_map = load_shard_prefix_map(&previous_shard_path, parent_prefix)?;
+
+            for (path, new_size) in load_shard_prefix_map(&current_shard_path, parent_prefix)? {
+                let old_size = previous_map.remove(&path).unwrap_or(0);
+                collector.push(path, old_size, new_size);
+            }
+
+            for (path, old_size) in previous_map {
+                collector.push(path, old_size, 0);
+            }
+        }
+        Ok(collector.finish())
+    }
+
     fn file_shard_dir(&self, snapshot_path: &Path) -> PathBuf {
         snapshot_path.with_extension(FILE_SHARD_SUFFIX)
     }
@@ -351,6 +424,124 @@ fn display_name_from_path(path: &str) -> String {
         .filter(|name| !name.is_empty())
         .unwrap_or(path)
         .to_string()
+}
+
+impl SubtreeDiffCollector {
+    fn new(max_entries: usize) -> Self {
+        Self {
+            entries: Vec::new(),
+            max_entries: max_entries.max(1),
+            total_changed_files: 0,
+        }
+    }
+
+    fn push(&mut self, path: String, old_size: u64, new_size: u64) {
+        if old_size == new_size {
+            return;
+        }
+
+        self.total_changed_files += 1;
+        let diff_abs = (new_size as i64 - old_size as i64).unsigned_abs();
+        let entry = FileSnapshotDiffEntry {
+            path,
+            old_size,
+            new_size,
+        };
+
+        if self.entries.len() < self.max_entries {
+            self.entries.push(entry);
+            self.entries.sort_by(compare_diff_entry);
+            return;
+        }
+
+        // 递归兜底可能命中极大目录，只保留前端当前分页真正需要的 Top N，避免全量变化明细常驻内存。
+        let Some(last) = self.entries.last() else {
+            return;
+        };
+        let last_diff_abs = (last.new_size as i64 - last.old_size as i64).unsigned_abs();
+        if diff_abs > last_diff_abs || (diff_abs == last_diff_abs && entry.path < last.path) {
+            self.entries.pop();
+            self.entries.push(entry);
+            self.entries.sort_by(compare_diff_entry);
+        }
+    }
+
+    fn finish(self) -> (Vec<FileSnapshotDiffEntry>, usize) {
+        (self.entries, self.total_changed_files)
+    }
+}
+
+fn compare_diff_entry(
+    left: &FileSnapshotDiffEntry,
+    right: &FileSnapshotDiffEntry,
+) -> std::cmp::Ordering {
+    let left_abs = (left.new_size as i64 - left.old_size as i64).unsigned_abs();
+    let right_abs = (right.new_size as i64 - right.old_size as i64).unsigned_abs();
+    right_abs
+        .cmp(&left_abs)
+        .then_with(|| left.path.cmp(&right.path))
+}
+
+fn load_shard_prefix_map(
+    shard_path: &Path,
+    parent_prefix: &str,
+) -> Result<HashMap<String, u64>, String> {
+    let mut entries = HashMap::new();
+    if !shard_path.exists() {
+        return Ok(entries);
+    }
+
+    let file = File::open(shard_path)
+        .map_err(|e| format!("读取文件级快照分片失败 {}: {}", shard_path.display(), e))?;
+    let reader = BufReader::new(file);
+    for line in reader.lines() {
+        let line =
+            line.map_err(|e| format!("读取文件级快照分片失败 {}: {}", shard_path.display(), e))?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        let row: DiskFileShardEntry = serde_json::from_str(&line)
+            .map_err(|e| format!("解析文件级快照分片失败 {}: {}", shard_path.display(), e))?;
+        // 兜底只关心当前目录后代，提前过滤可以把单分片内的临时 HashMap 控制在局部范围。
+        if row.parent.starts_with(parent_prefix) {
+            entries.insert(
+                format!("{}/{}", row.parent.trim_end_matches('/'), row.name),
+                row.size,
+            );
+        }
+    }
+    Ok(entries)
+}
+
+fn collect_subtree_legacy_diffs(
+    previous_snapshot: &DiskSnapshot,
+    current_snapshot: &DiskSnapshot,
+    parent_prefix: &str,
+    max_entries: usize,
+) -> (Vec<FileSnapshotDiffEntry>, usize) {
+    let mut collector = SubtreeDiffCollector::new(max_entries);
+    let mut previous_map: HashMap<String, u64> = previous_snapshot
+        .file_entries
+        .iter()
+        .filter(|entry| normalize_path(&entry.path).starts_with(parent_prefix))
+        .map(|entry| (normalize_path(&entry.path), entry.size))
+        .collect();
+
+    for entry in current_snapshot
+        .file_entries
+        .iter()
+        .filter(|entry| normalize_path(&entry.path).starts_with(parent_prefix))
+    {
+        let path = normalize_path(&entry.path);
+        let old_size = previous_map.remove(&path).unwrap_or(0);
+        collector.push(path, old_size, entry.size);
+    }
+
+    for (path, old_size) in previous_map {
+        collector.push(path, old_size, 0);
+    }
+
+    collector.finish()
 }
 
 fn shard_bucket(parent_path: &str) -> u64 {

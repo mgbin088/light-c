@@ -59,7 +59,8 @@ export const ConfirmDialog = memo(function ConfirmDialog({
   if (!isOpen && !isAnimating) return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center">
+    // 确认弹窗需要压过设置页和模块详情弹窗，避免危险操作确认被父级弹窗遮住。
+    <div className="fixed inset-0 z-[10050] flex items-center justify-center">
       {/* 遮罩层 */}
       <div 
         className={`absolute inset-0 bg-black/50 backdrop-blur-sm ${isVisible ? 'modal-overlay-in' : enteredRef.current ? 'modal-overlay-out' : 'opacity-0'}`}

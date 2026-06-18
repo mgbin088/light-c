@@ -183,10 +183,10 @@ pub fn set_data_dir(new_path: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// 清空本地数据：安装历史缓存 + 清理日志
+/// 清空本地数据：安装历史缓存 + 清理日志 + C 盘全盘分析快照
 ///
 /// 【中文说明】
-/// 删除 install_history.json 和 logs/ 目录下所有日志文件。
+/// 删除 install_history.json、logs/ 目录下所有日志文件，以及 disk_growth_snapshots/ 快照目录。
 /// 返回 (删除文件数, 释放字节数)。
 pub fn clear_local_data() -> Result<(usize, u64), String> {
     let data_dir = get_data_dir();
@@ -204,23 +204,76 @@ pub fn clear_local_data() -> Result<(usize, u64), String> {
         log::info!("已删除安装历史缓存");
     }
 
-    // 删除所有日志文件
+    // 删除所有日志文件，保留目录本身便于后续继续写入日志。
     let logs_dir = data_dir.join("logs");
     if logs_dir.exists() && logs_dir.is_dir() {
-        for entry_res in fs::read_dir(&logs_dir).map_err(|e| format!("读取日志目录失败: {}", e))?
-        {
-            let entry = entry_res.map_err(|e| format!("读取日志条目失败: {}", e))?;
-            let path = entry.path();
-            if path.is_file() {
-                if let Ok(meta) = fs::metadata(&path) {
-                    total_size += meta.len();
-                }
-                fs::remove_file(&path)
-                    .map_err(|e| format!("删除日志文件 {} 失败: {}", path.display(), e))?;
-                file_count += 1;
-            }
-        }
+        let (deleted_files, deleted_bytes) = clear_directory_contents(&logs_dir)?;
+        file_count += deleted_files;
+        total_size += deleted_bytes;
         log::info!("已清空日志目录");
+    }
+
+    // C 盘全盘分析快照可安全清理；下次扫描会重新建立基线，不会造成格式兼容问题。
+    let disk_growth_snapshot_dir = data_dir.join("disk_growth_snapshots");
+    if disk_growth_snapshot_dir.exists() && disk_growth_snapshot_dir.is_dir() {
+        let (deleted_files, deleted_bytes) = clear_directory_contents(&disk_growth_snapshot_dir)?;
+        file_count += deleted_files;
+        total_size += deleted_bytes;
+        log::info!("已清空 C 盘全盘分析快照");
+    }
+
+    Ok((file_count, total_size))
+}
+
+/// 清空指定目录下的所有内容但保留目录本身，避免日志目录等固定入口被删后还要重新创建。
+fn clear_directory_contents(dir: &Path) -> Result<(usize, u64), String> {
+    let mut file_count = 0usize;
+    let mut total_size = 0u64;
+
+    for entry_res in
+        fs::read_dir(dir).map_err(|e| format!("读取目录失败 {}: {}", dir.display(), e))?
+    {
+        let entry = entry_res.map_err(|e| format!("读取目录条目失败 {}: {}", dir.display(), e))?;
+        let path = entry.path();
+        if path.is_dir() {
+            let (child_files, child_bytes) = directory_usage(&path)?;
+            file_count += child_files;
+            total_size += child_bytes;
+            fs::remove_dir_all(&path)
+                .map_err(|e| format!("删除目录 {} 失败: {}", path.display(), e))?;
+        } else if path.is_file() {
+            if let Ok(meta) = fs::metadata(&path) {
+                total_size += meta.len();
+            }
+            fs::remove_file(&path)
+                .map_err(|e| format!("删除文件 {} 失败: {}", path.display(), e))?;
+            file_count += 1;
+        }
+    }
+
+    Ok((file_count, total_size))
+}
+
+/// 删除目录前先统计文件数和空间，保证前端提示的释放量包含嵌套目录内的快照分片。
+fn directory_usage(dir: &Path) -> Result<(usize, u64), String> {
+    let mut file_count = 0usize;
+    let mut total_size = 0u64;
+
+    for entry_res in
+        fs::read_dir(dir).map_err(|e| format!("统计目录失败 {}: {}", dir.display(), e))?
+    {
+        let entry = entry_res.map_err(|e| format!("统计目录条目失败 {}: {}", dir.display(), e))?;
+        let path = entry.path();
+        if path.is_dir() {
+            let (child_files, child_bytes) = directory_usage(&path)?;
+            file_count += child_files;
+            total_size += child_bytes;
+        } else if path.is_file() {
+            if let Ok(meta) = fs::metadata(&path) {
+                total_size += meta.len();
+            }
+            file_count += 1;
+        }
     }
 
     Ok((file_count, total_size))

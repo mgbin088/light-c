@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { useVirtualizer } from '@tanstack/react-virtual';
+import { AnimatePresence, motion } from 'framer-motion';
 import {
   AlertTriangle,
   CheckCircle2,
@@ -369,16 +370,13 @@ function ChangeRow({
 
 function DiskGrowthDetailsModal({
   entry,
-  closing,
   onClose,
   onOpenFolder,
 }: {
   entry: DiskGrowthEntry | null;
-  closing: boolean;
   onClose: () => void;
   onOpenFolder: (path: string) => void;
 }) {
-  const [visible, setVisible] = useState(false);
   const [currentEntry, setCurrentEntry] = useState<DiskGrowthEntry | null>(entry);
   const [fileDetails, setFileDetails] = useState<DiskGrowthFileDetailsResponse | null>(null);
   const [directoryDetails, setDirectoryDetails] = useState<DiskGrowthDirectoryDetailsResponse | null>(null);
@@ -393,12 +391,6 @@ function DiskGrowthDetailsModal({
   const rootPath = entry?.path ?? '';
   const currentPath = currentEntry?.path ?? rootPath;
   const detailPageSize = 200;
-
-  useEffect(() => {
-    // 首帧先保持隐藏，下一帧再切到可见，确保浏览器能触发真实的入场过渡。
-    const animationFrame = window.requestAnimationFrame(() => setVisible(true));
-    return () => window.cancelAnimationFrame(animationFrame);
-  }, []);
 
   useEffect(() => {
     setCurrentEntry(entry);
@@ -517,19 +509,21 @@ function DiskGrowthDetailsModal({
       setDirectoryLoading(false);
     }
   };
-  const modalVisible = visible && !closing;
-
   return (
-    <div
-      className={`fixed inset-0 z-[10000] flex items-center justify-center bg-black/40 backdrop-blur-sm transition-opacity duration-150 ${
-        modalVisible ? 'opacity-100' : 'opacity-0'
-      }`}
+    <motion.div
+      className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/40 backdrop-blur-sm"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.18, ease: 'easeOut' }}
       onClick={onClose}
     >
-      <div
-        className={`w-[1040px] max-w-[calc(100vw-32px)] h-[90vh] max-h-[calc(100vh-32px)] rounded-2xl bg-[var(--bg-card)] shadow-2xl border border-[var(--border-color)] overflow-hidden transition-all duration-200 flex flex-col ${
-          modalVisible ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-95 translate-y-2'
-        }`}
+      <motion.div
+        className="w-[1040px] max-w-[calc(100vw-32px)] h-[90vh] max-h-[calc(100vh-32px)] rounded-2xl bg-[var(--bg-card)] shadow-2xl border border-[var(--border-color)] overflow-hidden flex flex-col"
+        initial={{ opacity: 0, scale: 0.96, y: 12 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.96, y: 12 }}
+        transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border-color)]">
@@ -717,8 +711,8 @@ function DiskGrowthDetailsModal({
             说明：目录与文件变化均按需加载，每次最多加载 {detailPageSize} 条；变化明细仅用于定位来源，不代表可以直接删除。
           </p>
         </div>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 }
 
@@ -739,7 +733,6 @@ export function DiskGrowthModule() {
   const [scanElapsed, setScanElapsed] = useState(0);
   const [scanProgress, setScanProgress] = useState<DiskGrowthScanProgress | null>(null);
   const [detailEntry, setDetailEntry] = useState<DiskGrowthEntry | null>(null);
-  const [detailClosing, setDetailClosing] = useState(false);
 
   const isExpanded = expandedModule === 'disk-growth';
 
@@ -810,7 +803,6 @@ export function DiskGrowthModule() {
     setScanProgress(null);
     setShowAll(false);
     setDetailEntry(null);
-    setDetailClosing(false);
 
     try {
       const result = await scanDiskGrowth(settings.diskGrowthMaxEntries);
@@ -890,15 +882,10 @@ export function DiskGrowthModule() {
 
   const handleShowDetails = useCallback((entry: DiskGrowthEntry) => {
     setDetailEntry(entry);
-    setDetailClosing(false);
   }, []);
 
   const handleCloseDetails = useCallback(() => {
-    setDetailClosing(true);
-    window.setTimeout(() => {
-      setDetailEntry(null);
-      setDetailClosing(false);
-    }, 170);
+    setDetailEntry(null);
   }, []);
 
   const growthMap = useMemo(() => {
@@ -1040,12 +1027,16 @@ export function DiskGrowthModule() {
           </div>
         </div>
       )}
-      <DiskGrowthDetailsModal
-        entry={detailEntry}
-        closing={detailClosing}
-        onClose={handleCloseDetails}
-        onOpenFolder={handleOpenFolder}
-      />
+      <AnimatePresence>
+        {detailEntry && (
+          <DiskGrowthDetailsModal
+            key={detailEntry.path}
+            entry={detailEntry}
+            onClose={handleCloseDetails}
+            onOpenFolder={handleOpenFolder}
+          />
+        )}
+      </AnimatePresence>
     </ModuleCard>
   );
 }

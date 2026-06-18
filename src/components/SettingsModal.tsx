@@ -6,6 +6,7 @@ import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Settings, MessageSquare, Info, Sun, Moon, Monitor, ExternalLink, RefreshCw, CheckCircle, BookOpen, Shield, AlertTriangle, Cpu, HardDrive, Monitor as MonitorIcon, User, Clock, Zap, FileBox, MessageCircle, Layers, Package, Database, Code2, FolderOpen, History, ChevronRight, MonitorCog, Coffee, Copy, MousePointerClick, ShieldCheck, Rocket, HelpCircle, ClipboardList, ShieldAlert, Navigation, Trash2, SlidersHorizontal, Download } from 'lucide-react';
 import { Select, type SelectOption } from './ui/Select';
+import { ConfirmDialog } from './ConfirmDialog';
 
 // 赞赏码图片
 import wechatQr from '../assets/r_wechat_qr.jpg';
@@ -144,6 +145,7 @@ function GeneralSettings({ mode, setMode }: { mode: ThemeMode; setMode: (mode: T
   const [dataDir, setDataDir] = useState('');
   const [isChangingDir, setIsChangingDir] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
+  const [clearConfirmStep, setClearConfirmStep] = useState<0 | 1 | 2>(0);
 
   // 加载当前数据目录
   useEffect(() => {
@@ -175,9 +177,14 @@ function GeneralSettings({ mode, setMode }: { mode: ThemeMode; setMode: (mode: T
   };
 
   // 清空本地数据
-  const handleClearData = async () => {
-    if (!window.confirm('确定要清空所有本地数据吗？\n\n这将删除：\n• 安装历史缓存\n• 所有清理日志记录\n\n此操作不可撤销。')) return;
+  const handleClearData = () => {
+    // Tauri WebView 下原生 window.confirm 偶发不显示，改用项目内确认弹窗确保危险操作一定被用户看见。
+    setClearConfirmStep(1);
+  };
+
+  const executeClearData = async () => {
     try {
+      setClearConfirmStep(0);
       setIsClearing(true);
       const [fileCount, freedBytes] = await clearLocalData();
       showToast({
@@ -366,6 +373,30 @@ function GeneralSettings({ mode, setMode }: { mode: ThemeMode; setMode: (mode: T
           </button>
         </div>
       </div>
+
+      <ConfirmDialog
+        isOpen={clearConfirmStep === 1}
+        title="清空本地数据？"
+        description="这会删除安装历史缓存、所有清理日志记录，以及 C 盘全盘分析快照。"
+        warning="此操作不可撤销；快照清理后不会损坏功能，但会失去现有对比基线。"
+        confirmText="继续"
+        cancelText="取消"
+        isDanger
+        onCancel={() => setClearConfirmStep(0)}
+        onConfirm={() => setClearConfirmStep(2)}
+      />
+
+      <ConfirmDialog
+        isOpen={clearConfirmStep === 2}
+        title="再次确认清空？"
+        description="清空 C 盘全盘分析快照后，下一次扫描会重新建立基线，第二次扫描才会重新显示变化对比。"
+        warning="如果你还需要保留当前增长对比记录，请先取消操作。"
+        confirmText="确认清空"
+        cancelText="取消"
+        isDanger
+        onCancel={() => setClearConfirmStep(0)}
+        onConfirm={executeClearData}
+      />
 
       {/* 系统快捷工具 */}
       <div className="space-y-3 pt-2 border-t border-[var(--border-color)]">
