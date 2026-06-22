@@ -419,12 +419,12 @@ npm run tauri build
 
 1. 同步版本号：`package.json`、`package-lock.json`、`src-tauri/tauri.conf.json`、`src-tauri/Cargo.toml`、`src-tauri/Cargo.lock`
 2. 更新 `CHANGELOG.md` 和 `.github/workflows/release.yml` 的发布说明
-3. 构建并签名
-4. 上传到 GitHub Releases：
+3. 参考项目内 `skills/lightc-release/SKILL.md` 执行发版前检查，确保版本号、发布说明和 README 行为描述一致
+4. 构建并签名
+5. 上传到 GitHub Releases：
    - `LightC_x.x.x_x64-setup.nsis.zip`
    - `LightC_x.x.x_x64-setup.nsis.zip.sig`
    - `latest.json`（构建时自动生成）
-5. 后续可参考项目内 `skills/lightc-release/SKILL.md` 执行发版前文档同步
 
 ---
 

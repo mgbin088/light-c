@@ -50,14 +50,14 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: 'LightC v2.9.0'
+          releaseName: 'LightC v2.9.1'
           releaseBody: |
             ## 更新内容
-            - 新增自定义布局：支持默认卡片总览和传统 PC 软件式页面模式，可在设置页切换
-            - 页面模式下左侧导航自动切换为功能页导航，模块状态、扫描结果和展开状态会在切换中保留
-            - 优化页面切换动画：使用轻量入场动画和顶部绿色扫描光带，减少大结果页切换卡顿
-            - 修复 C 盘全盘分析变化明细弹窗在页面模式下被容器裁切的问题
-            - 优化社交软件专清弹窗和分类展开动画，并修复风险等级中文乱码
+            - 修复大目录分析 MFT 深度扫描结果最后修改时间显示为 1970 年的问题
+            - 卸载残留评分策略更保守：当前已安装应用 DisplayName 命中改为保护性降权，高置信默认勾选阈值提高到 0.75
+            - 卸载残留和注册表冗余扫描中增加关键步骤与进度骨架，页面模式下不再大面积空白
+            - 优化各模块重新扫描/检测按钮视觉样式，垃圾清理分类展开增加手风琴过渡
+            - 新增长列表平滑回到顶部按钮
 
             请查看 [更新日志](https://github.com/Chunyu33/light-c/blob/main/CHANGELOG.md) 了解详细版本变更。
 
