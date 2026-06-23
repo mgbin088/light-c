@@ -12,6 +12,8 @@ import {
   X,
 } from 'lucide-react';
 import type { ReactNode } from 'react';
+import { listen } from '@tauri-apps/api/event';
+import { openUrl } from '@tauri-apps/plugin-opener';
 import { ModuleCard } from '../ModuleCard';
 import { EmptyState } from '../EmptyState';
 import { useToast } from '../Toast';
@@ -22,6 +24,7 @@ import {
   scanAiModelAssets,
   type AiAssetSource,
   type AiModelItem,
+  type AiModelScanProgress,
   type AiModelScanResult,
 } from '../../api/commands';
 import { formatSize } from '../../utils/format';
@@ -37,6 +40,11 @@ interface FlattenedModel extends AiModelItem {
   sourceName: string;
 }
 
+interface DisplayModelName {
+  title: string;
+  typeLabel: string | null;
+}
+
 export function AiModelsModule({ layoutMode = 'cards' }: { layoutMode?: 'cards' | 'pages' }) {
   const { modules, expandedModule, setExpandedModule, updateModuleState, oneClickScanTrigger } = useDashboard();
   const moduleState = modules.aiModels;
@@ -50,6 +58,7 @@ export function AiModelsModule({ layoutMode = 'cards' }: { layoutMode?: 'cards' 
   const [enableDeepDiscovery, setEnableDeepDiscovery] = useState(() => loadDeepDiscovery());
   const [viewMode, setViewMode] = useState<AiModelViewMode>('overview');
   const [selectedSourceName, setSelectedSourceName] = useState<string | null>(null);
+  const [scanProgress, setScanProgress] = useState<AiModelScanProgress | null>(null);
 
   const allModels = useMemo(() => flattenModels(scanResult), [scanResult]);
   const largestModel = allModels[0] ?? null;
@@ -76,6 +85,7 @@ export function AiModelsModule({ layoutMode = 'cards' }: { layoutMode?: 'cards' 
     if (scanningRef.current) return;
 
     scanningRef.current = true;
+    setScanProgress(null);
     updateModuleState('aiModels', { status: 'scanning', error: null });
     setExpandedModule('aiModels');
 
@@ -111,6 +121,28 @@ export function AiModelsModule({ layoutMode = 'cards' }: { layoutMode?: 'cards' 
     }
   }, [handleScan, oneClickScanTrigger]);
 
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    let cancelled = false;
+
+    listen<AiModelScanProgress>('ai-models:progress', (event) => {
+      if (!cancelled) {
+        setScanProgress(event.payload);
+      }
+    }).then((dispose) => {
+      if (cancelled) {
+        dispose();
+      } else {
+        unlisten = dispose;
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      if (unlisten) unlisten();
+    };
+  }, []);
+
   const handleAddCustomPath = useCallback(async () => {
     try {
       const selectedPath = await pickFolderDialog();
@@ -140,6 +172,17 @@ export function AiModelsModule({ layoutMode = 'cards' }: { layoutMode?: 'cards' 
     }
   }, [showToast]);
 
+  const handleSearchModel = useCallback(async (modelName: string) => {
+    try {
+      const displayName = splitDisplayModelName(modelName);
+      // 搜索使用用户能理解的模型文件名，避免把 ComfyUI 内部类型目录带进查询词降低结果相关性。
+      const query = encodeURIComponent(`${displayName.title} AI model`);
+      await openUrl(`https://www.bing.com/search?q=${query}`);
+    } catch (error) {
+      showToast({ type: 'error', title: '打开搜索失败', description: String(error) });
+    }
+  }, [showToast]);
+
   const isExpanded = expandedModule === 'aiModels';
   const isScanning = moduleState.status === 'scanning';
 
@@ -148,7 +191,7 @@ export function AiModelsModule({ layoutMode = 'cards' }: { layoutMode?: 'cards' 
       variant={layoutMode === 'pages' ? 'page' : 'card'}
       forceExpanded={layoutMode === 'pages'}
       id="aiModels"
-      title="AI资产分析"
+      title="AI 模型空间"
       description="快速分析本机 AI 模型、LoRA、Embedding 和缓存占用"
       icon={<BrainCircuit className="w-6 h-6 text-[var(--brand-green)]" />}
       status={moduleState.status}
@@ -163,25 +206,26 @@ export function AiModelsModule({ layoutMode = 'cards' }: { layoutMode?: 'cards' 
       scanButtonText={isScanning ? '分析中...' : scanResult ? '重新分析' : '开始分析'}
       error={moduleState.error}
       headerExtra={
-        <button
-          onClick={(event) => {
-            event.stopPropagation();
-            handleAddCustomPath();
-          }}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-[var(--bg-hover)] text-[var(--fg-secondary)] hover:text-[var(--brand-green)] transition"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          添加目录
-        </button>
+        <div className="flex shrink-0 items-center gap-2">
+          <DeepDiscoveryToggle
+            enabled={enableDeepDiscovery}
+            disabled={isScanning}
+            onChange={setEnableDeepDiscovery}
+          />
+          <button
+            onClick={(event) => {
+              event.stopPropagation();
+              handleAddCustomPath();
+            }}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-[var(--bg-hover)] text-[var(--fg-secondary)] hover:text-[var(--brand-green)] transition"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            添加目录
+          </button>
+        </div>
       }
     >
       <div className="p-5 space-y-5">
-        <DeepDiscoveryToggle
-          enabled={enableDeepDiscovery}
-          disabled={isScanning}
-          onChange={setEnableDeepDiscovery}
-        />
-
         {customPaths.length > 0 && (
           <CustomPathList paths={customPaths} onRemove={handleRemoveCustomPath} />
         )}
@@ -209,10 +253,12 @@ export function AiModelsModule({ layoutMode = 'cards' }: { layoutMode?: 'cards' 
               <Loader2 className="h-7 w-7 animate-spin text-[var(--brand-green)]" />
             </div>
             <p className="text-sm font-semibold text-[var(--text-primary)]">
-              {enableDeepDiscovery ? '正在深度发现 AI 资产...' : '正在快速检测 AI 资产...'}
+              {scanProgress?.message ?? (enableDeepDiscovery ? '正在深度发现 AI 模型...' : '正在快速检测 AI 模型...')}
             </p>
             <p className="mt-1 text-xs text-[var(--text-muted)]">
-              {enableDeepDiscovery
+              {scanProgress
+                ? `当前阶段 ${formatDuration(scanProgress.stage_elapsed_ms)} · 总耗时 ${formatDuration(scanProgress.elapsed_ms)}`
+                : enableDeepDiscovery
                 ? '正在用 MFT 扫描本地 NTFS 盘的大模型特征文件，并跳过已识别平台路径。'
                 : '只扫描已知平台目录和你添加的目录，不会启动全盘扫描。'}
             </p>
@@ -225,7 +271,7 @@ export function AiModelsModule({ layoutMode = 'cards' }: { layoutMode?: 'cards' 
               scanResult={scanResult}
               largestModel={largestModel}
               onOpenPath={openInFolder}
-              onCopyPath={handleCopyPath}
+              onSearchModel={handleSearchModel}
             />
 
             <InsightsRow
@@ -242,7 +288,7 @@ export function AiModelsModule({ layoutMode = 'cards' }: { layoutMode?: 'cards' 
                   title="最大模型"
                   models={allModels.slice(0, TOP_MODEL_LIMIT)}
                   onOpenPath={openInFolder}
-                  onCopyPath={handleCopyPath}
+                  onSearchModel={handleSearchModel}
                 />
                 <PlatformRanking sources={scanResult.sources} onSelectSource={setSelectedSourceName} />
               </>
@@ -253,7 +299,7 @@ export function AiModelsModule({ layoutMode = 'cards' }: { layoutMode?: 'cards' 
                 title="全部模型"
                 models={allModels}
                 onOpenPath={openInFolder}
-                onCopyPath={handleCopyPath}
+                onSearchModel={handleSearchModel}
               />
             )}
 
@@ -264,6 +310,7 @@ export function AiModelsModule({ layoutMode = 'cards' }: { layoutMode?: 'cards' 
                 onSelectSource={setSelectedSourceName}
                 onOpenPath={openInFolder}
                 onCopyPath={handleCopyPath}
+                onSearchModel={handleSearchModel}
               />
             )}
 
@@ -294,25 +341,24 @@ function DeepDiscoveryToggle({
   onChange: (enabled: boolean) => void;
 }) {
   return (
-    <div className="flex items-start justify-between gap-4 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-main)] p-4">
-      <div className="min-w-0">
-        <p className="text-sm font-semibold text-[var(--text-primary)]">深度发现</p>
-        <p className="mt-1 text-xs leading-relaxed text-[var(--text-muted)]">
-          开启后使用 MFT 扫描本地 NTFS 盘的大模型特征文件，适合不知道模型放在哪个盘的情况；管理员权限下速度和覆盖率更好。
-        </p>
-      </div>
+    <div
+      className="flex items-center gap-2 rounded-lg bg-[var(--bg-hover)] px-3 py-1.5"
+      title="开启后使用 MFT 扫描本地 NTFS 盘的大模型特征文件，适合不知道模型放在哪个盘的情况；管理员权限下速度和覆盖率更好。"
+    >
+      <span className="text-xs font-medium text-[var(--fg-secondary)]">深度发现</span>
       <button
         type="button"
         disabled={disabled}
         onClick={() => onChange(!enabled)}
-        className={`relative h-7 w-12 shrink-0 rounded-full transition ${
+        className={`relative h-5 w-9 shrink-0 rounded-full transition ${
           enabled ? 'bg-[var(--brand-green)]' : 'bg-[var(--bg-hover)]'
         } ${disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}
         aria-pressed={enabled}
+        aria-label="切换深度发现"
       >
         <span
-          className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow-sm transition ${
-            enabled ? 'left-6' : 'left-1'
+          className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition ${
+            enabled ? 'left-[18px]' : 'left-0.5'
           }`}
         />
       </button>
@@ -324,37 +370,49 @@ function HeroOverview({
   scanResult,
   largestModel,
   onOpenPath,
-  onCopyPath,
+  onSearchModel,
 }: {
   scanResult: AiModelScanResult;
   largestModel: FlattenedModel | null;
   onOpenPath: (path: string) => Promise<void>;
-  onCopyPath: (path: string) => Promise<void>;
+  onSearchModel: (modelName: string) => Promise<void>;
 }) {
-  return (
-    <div className="grid gap-4 lg:grid-cols-[1fr_1.4fr]">
-      <div className="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-card)] p-5">
-        <p className="text-xs font-semibold text-[var(--text-muted)]">AI资产总占用</p>
-        <p className="mt-2 text-4xl font-bold tabular-nums text-[var(--brand-green)]">
-          {formatSize(scanResult.total_size)}
-        </p>
-        <p className="mt-2 text-xs text-[var(--text-muted)]">
-          发现 {scanResult.total_model_count.toLocaleString()} 个资产 · {scanResult.source_count} 个来源 · {scanResult.discovery_mode === 'deep' ? '深度发现' : '快速扫描'} · {scanResult.scan_duration_ms}ms
-        </p>
-      </div>
+  const displayName = largestModel ? splitDisplayModelName(largestModel.name) : null;
 
-      <div className="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-card)] p-5">
-        <div className="flex items-start justify-between gap-4">
+  return (
+    <div className="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-card)] p-4">
+      <div className="grid grid-cols-[190px_minmax(0,1fr)] items-center gap-4">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <p className="text-xs font-semibold text-[var(--text-muted)]">AI资产总占用</p>
+            <ScanDurationPopover scanResult={scanResult} />
+          </div>
+          <p className="mt-1 text-3xl font-bold tabular-nums text-[var(--brand-green)]">
+            {formatSize(scanResult.total_size)}
+          </p>
+          <p className="mt-1 text-xs text-[var(--text-muted)]">
+            发现 {scanResult.total_model_count.toLocaleString()} 个资产 · {scanResult.source_count} 个来源 · {scanResult.discovery_mode === 'deep' ? '深度发现' : '快速扫描'}
+          </p>
+        </div>
+
+        <div className="flex min-w-0 items-start justify-between gap-4 border-l border-[var(--border-color)] pl-5">
           <div className="min-w-0">
             <p className="text-xs font-semibold text-[var(--text-muted)]">最大模型</p>
-            <p className="mt-2 truncate text-2xl font-bold text-[var(--text-primary)]" title={largestModel?.name}>
-              {largestModel?.name ?? '未发现模型'}
-            </p>
+            <div className="mt-1 flex min-w-0 items-center gap-2">
+              <p className="min-w-0 truncate text-xl font-bold text-[var(--text-primary)]" title={largestModel?.path ?? largestModel?.name}>
+                {displayName?.title ?? '未发现模型'}
+              </p>
+              {displayName?.typeLabel && (
+                <span className="shrink-0 rounded-full bg-[var(--bg-hover)] px-2 py-0.5 text-[10px] font-medium text-[var(--text-muted)]">
+                  {displayName.typeLabel}
+                </span>
+              )}
+            </div>
             <p className="mt-1 text-sm font-semibold text-[var(--brand-green)]">
               {largestModel ? `${formatSize(largestModel.size)} · ${largestModel.sourceName}` : '添加目录后重新分析'}
             </p>
             {largestModel && (
-              <p className="mt-2 truncate text-xs text-[var(--text-muted)]" title={largestModel.path}>
+              <p className="mt-1 truncate text-xs text-[var(--text-muted)]" title={largestModel.path}>
                 {largestModel.path}
               </p>
             )}
@@ -362,9 +420,42 @@ function HeroOverview({
           {largestModel && (
             <div className="flex shrink-0 items-center gap-1">
               <IconButton title="打开目录" onClick={() => onOpenPath(largestModel.path)} icon={<FolderOpen className="w-4 h-4" />} />
-              <IconButton title="复制路径" onClick={() => onCopyPath(largestModel.path)} icon={<Clipboard className="w-4 h-4" />} />
+              <IconButton title="搜索模型" onClick={() => onSearchModel(largestModel.name)} icon={<Search className="w-4 h-4" />} />
             </div>
           )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ScanDurationPopover({ scanResult }: { scanResult: AiModelScanResult }) {
+  if (scanResult.phase_durations.length === 0) return null;
+
+  return (
+    <div className="group relative inline-flex">
+      <button
+        type="button"
+        className="rounded-full bg-[var(--bg-hover)] px-2 py-0.5 text-[10px] font-medium text-[var(--text-muted)] hover:text-[var(--brand-green)] transition"
+      >
+        耗时 {formatDuration(scanResult.scan_duration_ms)}
+      </button>
+      <div className="pointer-events-none absolute left-0 top-full z-20 w-[420px] pt-1 opacity-0 transition group-hover:pointer-events-auto group-hover:opacity-100">
+        <div className="rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] p-3 shadow-lg">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-xs font-semibold text-[var(--text-primary)]">扫描耗时</p>
+            <p className="text-xs text-[var(--text-muted)]">总计 {formatDuration(scanResult.scan_duration_ms)}</p>
+          </div>
+          <div className="mt-2 grid max-h-56 grid-cols-2 gap-1.5 overflow-y-auto pr-1">
+            {scanResult.phase_durations.map((phase, index) => (
+              <div key={`${phase.stage}-${index}`} className="grid grid-cols-[minmax(0,1fr)_52px] items-center gap-2 rounded-lg bg-[var(--bg-main)] px-2.5 py-1.5">
+                <span className="min-w-0 truncate text-xs text-[var(--text-muted)]" title={phase.label}>{phase.label}</span>
+                <span className="text-right text-xs font-semibold tabular-nums text-[var(--text-primary)]">
+                  {formatDuration(phase.duration_ms)}
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </div>
@@ -438,12 +529,12 @@ function ModelTable({
   title,
   models,
   onOpenPath,
-  onCopyPath,
+  onSearchModel,
 }: {
   title: string;
   models: FlattenedModel[];
   onOpenPath: (path: string) => Promise<void>;
-  onCopyPath: (path: string) => Promise<void>;
+  onSearchModel: (modelName: string) => Promise<void>;
 }) {
   return (
     <div className="overflow-hidden rounded-2xl border border-[var(--border-color)] bg-[var(--bg-card)]">
@@ -452,31 +543,40 @@ function ModelTable({
         <p className="text-xs text-[var(--text-muted)]">{models.length.toLocaleString()} 项</p>
       </div>
       <div className="divide-y divide-[var(--border-color)]">
-        {models.map(model => (
-          <div key={`${model.sourceName}-${model.path}-${model.name}`} className="flex items-center gap-3 px-4 py-3 hover:bg-[var(--bg-hover)] transition">
-            <div className="flex min-w-0 flex-1 items-center gap-3">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[var(--brand-green)]/10">
-                <BrainCircuit className="h-4 w-4 text-[var(--brand-green)]" />
-              </div>
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <p className="truncate text-sm font-medium text-[var(--text-primary)]" title={model.name}>{model.name}</p>
-                  <span className="shrink-0 rounded-full bg-[var(--bg-hover)] px-2 py-0.5 text-[10px] font-medium text-[var(--text-muted)]">
-                    {model.sourceName}
-                  </span>
+        {models.map(model => {
+          const displayName = splitDisplayModelName(model.name);
+
+          return (
+            <div key={`${model.sourceName}-${model.path}-${model.name}`} className="flex items-center gap-3 px-4 py-3 hover:bg-[var(--bg-hover)] transition">
+              <div className="flex min-w-0 flex-1 items-center gap-3">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[var(--brand-green)]/10">
+                  <BrainCircuit className="h-4 w-4 text-[var(--brand-green)]" />
                 </div>
-                <p className="mt-0.5 truncate text-xs text-[var(--text-muted)]" title={model.path}>{model.path}</p>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className="truncate text-sm font-medium text-[var(--text-primary)]" title={model.name}>{displayName.title}</p>
+                    <span className="shrink-0 rounded-full bg-[var(--bg-hover)] px-2 py-0.5 text-[10px] font-medium text-[var(--text-muted)]">
+                      {model.sourceName}
+                    </span>
+                    {displayName.typeLabel && (
+                      <span className="shrink-0 rounded-full bg-[var(--bg-hover)] px-2 py-0.5 text-[10px] font-medium text-[var(--text-muted)]">
+                        {displayName.typeLabel}
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-0.5 truncate text-xs text-[var(--text-muted)]" title={model.path}>{model.path}</p>
+                </div>
+              </div>
+              <p className="w-24 shrink-0 text-right text-sm font-bold tabular-nums text-[var(--brand-green)]">
+                {formatSize(model.size)}
+              </p>
+              <div className="flex shrink-0 items-center gap-1">
+                <IconButton title="打开目录" onClick={() => onOpenPath(model.path)} icon={<FolderOpen className="w-4 h-4" />} />
+                <IconButton title="搜索模型" onClick={() => onSearchModel(model.name)} icon={<Search className="w-4 h-4" />} />
               </div>
             </div>
-            <p className="w-24 shrink-0 text-right text-sm font-bold tabular-nums text-[var(--brand-green)]">
-              {formatSize(model.size)}
-            </p>
-            <div className="flex shrink-0 items-center gap-1">
-              <IconButton title="打开目录" onClick={() => onOpenPath(model.path)} icon={<FolderOpen className="w-4 h-4" />} />
-              <IconButton title="复制路径" onClick={() => onCopyPath(model.path)} icon={<Clipboard className="w-4 h-4" />} />
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -521,12 +621,14 @@ function PlatformDetail({
   onSelectSource,
   onOpenPath,
   onCopyPath,
+  onSearchModel,
 }: {
   sources: AiAssetSource[];
   selectedSource: AiAssetSource | null;
   onSelectSource: (name: string) => void;
   onOpenPath: (path: string) => Promise<void>;
   onCopyPath: (path: string) => Promise<void>;
+  onSearchModel: (modelName: string) => Promise<void>;
 }) {
   if (!selectedSource) return null;
 
@@ -566,7 +668,7 @@ function PlatformDetail({
           title={`${selectedSource.name} 模型`}
           models={selectedSource.models.map(model => ({ ...model, sourceName: selectedSource.name }))}
           onOpenPath={onOpenPath}
-          onCopyPath={onCopyPath}
+          onSearchModel={onSearchModel}
         />
       </div>
     </div>
@@ -609,6 +711,30 @@ function flattenModels(scanResult: AiModelScanResult | null): FlattenedModel[] {
   return scanResult.sources
     .flatMap(source => source.models.map(model => ({ ...model, sourceName: source.name })))
     .sort((left, right) => right.size - left.size);
+}
+
+function splitDisplayModelName(name: string): DisplayModelName {
+  const separator = ' / ';
+  const separatorIndex = name.indexOf(separator);
+  if (separatorIndex <= 0) {
+    return { title: name, typeLabel: null };
+  }
+
+  const typeLabel = name.slice(0, separatorIndex).trim();
+  const title = name.slice(separatorIndex + separator.length).trim();
+  // ComfyUI Detector 会把模型类型拼进名称；展示时拆开，避免内部目录结构压过用户真正关心的文件名。
+  return {
+    title: title || name,
+    typeLabel: typeLabel || null,
+  };
+}
+
+function formatDuration(durationMs: number): string {
+  if (durationMs < 1000) {
+    return `${durationMs}ms`;
+  }
+
+  return `${(durationMs / 1000).toFixed(1)}s`;
 }
 
 function loadCustomPaths(): string[] {

@@ -1,16 +1,33 @@
 use crate::ai_models::detectors::create_detectors;
 use crate::ai_models::mft_discovery::{discover_models_via_mft, CoveredRoot};
-use crate::ai_models::types::{AiModelScanResult, AssetSource};
+use crate::ai_models::types::{
+    AiModelPhaseDuration, AiModelScanProgress, AiModelScanResult, AssetSource,
+};
 use rayon::prelude::*;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-pub fn scan_ai_model_assets(
+pub fn scan_ai_model_assets_with_progress<F>(
     custom_paths: Vec<PathBuf>,
     enable_deep_discovery: bool,
-) -> AiModelScanResult {
+    progress: &F,
+) -> AiModelScanResult
+where
+    F: Fn(AiModelScanProgress) + Sync,
+{
     let started_at = Instant::now();
+    let mut phase_durations = Vec::new();
+    let mut phase_started_at = Instant::now();
+
+    emit_progress(
+        progress,
+        &started_at,
+        &phase_started_at,
+        "config",
+        "正在读取 AI 平台配置和已知模型目录",
+    );
+
     let detectors = create_detectors(custom_paths);
 
     let outputs: Vec<_> = detectors
@@ -27,18 +44,56 @@ pub fn scan_ai_model_assets(
         warnings.append(&mut output.warnings);
     }
 
+    finish_phase(
+        &mut phase_durations,
+        "config",
+        "配置与平台目录扫描",
+        phase_started_at,
+    );
+
+    phase_started_at = Instant::now();
+    emit_progress(
+        progress,
+        &started_at,
+        &phase_started_at,
+        "dedupe",
+        "正在合并配置层结果并建立覆盖路径",
+    );
     let mut sources = dedupe_models_by_path(sources);
+    finish_phase(
+        &mut phase_durations,
+        "dedupe",
+        "配置结果去重",
+        phase_started_at,
+    );
+
     if enable_deep_discovery {
         let covered_roots = covered_roots_from_sources(&sources);
-        let (mut mft_sources, mut mft_warnings) = discover_models_via_mft(&covered_roots);
+        let (mut mft_sources, mut mft_warnings, mut mft_phase_durations) =
+            discover_models_via_mft(&covered_roots, &started_at, progress);
         sources.append(&mut mft_sources);
         warnings.append(&mut mft_warnings);
+        phase_durations.append(&mut mft_phase_durations);
     }
 
+    phase_started_at = Instant::now();
+    emit_progress(
+        progress,
+        &started_at,
+        &phase_started_at,
+        "summary",
+        "正在汇总 AI 模型空间结果",
+    );
     let sources = dedupe_models_by_path(sources);
     let sources = merge_sources_by_name(sources);
     let total_size = sources.iter().map(|source| source.total_size).sum();
     let total_model_count = sources.iter().map(|source| source.model_count).sum();
+    finish_phase(
+        &mut phase_durations,
+        "summary",
+        "结果汇总",
+        phase_started_at,
+    );
 
     AiModelScanResult {
         total_size,
@@ -52,7 +107,38 @@ pub fn scan_ai_model_assets(
         } else {
             "quick".to_string()
         },
+        phase_durations,
     }
+}
+
+fn emit_progress<F>(
+    progress: &F,
+    scan_started_at: &Instant,
+    phase_started_at: &Instant,
+    stage: &str,
+    message: &str,
+) where
+    F: Fn(AiModelScanProgress) + Sync,
+{
+    progress(AiModelScanProgress {
+        stage: stage.to_string(),
+        message: message.to_string(),
+        elapsed_ms: scan_started_at.elapsed().as_millis(),
+        stage_elapsed_ms: phase_started_at.elapsed().as_millis(),
+    });
+}
+
+fn finish_phase(
+    phase_durations: &mut Vec<AiModelPhaseDuration>,
+    stage: &str,
+    label: &str,
+    phase_started_at: Instant,
+) {
+    phase_durations.push(AiModelPhaseDuration {
+        stage: stage.to_string(),
+        label: label.to_string(),
+        duration_ms: phase_started_at.elapsed().as_millis(),
+    });
 }
 
 fn covered_roots_from_sources(sources: &[AssetSource]) -> Vec<CoveredRoot> {

@@ -1192,6 +1192,22 @@ export interface AiModelScanResult {
   warnings: string[];
   scan_duration_ms: number;
   discovery_mode: 'quick' | 'deep';
+  phase_durations: AiModelPhaseDuration[];
+}
+
+/** AI模型空间扫描阶段耗时，用于解释 MFT 兜底瓶颈 */
+export interface AiModelPhaseDuration {
+  stage: string;
+  label: string;
+  duration_ms: number;
+}
+
+/** AI模型空间扫描实时阶段反馈 */
+export interface AiModelScanProgress {
+  stage: string;
+  message: string;
+  elapsed_ms: number;
+  stage_elapsed_ms: number;
 }
 
 /**

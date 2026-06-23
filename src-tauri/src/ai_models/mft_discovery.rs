@@ -1,9 +1,10 @@
 #![cfg(target_os = "windows")]
 
-use crate::ai_models::types::{AssetSource, ModelItem};
+use crate::ai_models::types::{AiModelPhaseDuration, AiModelScanProgress, AssetSource, ModelItem};
 use crate::scanner::big_files_engine::mft_core;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
 const SAFETENSORS_MIN_SIZE: u64 = 100 * 1024 * 1024;
 const GGUF_MIN_SIZE: u64 = 100 * 1024 * 1024;
@@ -22,16 +23,30 @@ struct MftModelCandidate {
     size: u64,
 }
 
-pub fn discover_models_via_mft(covered_roots: &[CoveredRoot]) -> (Vec<AssetSource>, Vec<String>) {
+pub fn discover_models_via_mft<F>(
+    covered_roots: &[CoveredRoot],
+    scan_started_at: &Instant,
+    progress: &F,
+) -> (Vec<AssetSource>, Vec<String>, Vec<AiModelPhaseDuration>)
+where
+    F: Fn(AiModelScanProgress) + Sync,
+{
     let mut warnings = Vec::new();
     let mut grouped_models: HashMap<String, Vec<ModelItem>> = HashMap::new();
+    let mut phase_durations = Vec::new();
 
     for drive_letter in local_drive_letters() {
         if !mft_core::is_ntfs(drive_letter) {
             continue;
         }
 
-        match scan_drive_for_model_candidates(drive_letter, covered_roots) {
+        match scan_drive_for_model_candidates(
+            drive_letter,
+            covered_roots,
+            scan_started_at,
+            progress,
+            &mut phase_durations,
+        ) {
             Ok(models) => {
                 for (source_name, model) in models {
                     grouped_models.entry(source_name).or_default().push(model);
@@ -63,18 +78,46 @@ pub fn discover_models_via_mft(covered_roots: &[CoveredRoot]) -> (Vec<AssetSourc
         .collect::<Vec<_>>();
 
     sources.sort_by(|left, right| right.total_size.cmp(&left.total_size));
-    (sources, warnings)
+    (sources, warnings, phase_durations)
 }
 
-fn scan_drive_for_model_candidates(
+fn scan_drive_for_model_candidates<F>(
     drive_letter: char,
     covered_roots: &[CoveredRoot],
-) -> Result<Vec<(String, ModelItem)>, String> {
+    scan_started_at: &Instant,
+    progress: &F,
+    phase_durations: &mut Vec<AiModelPhaseDuration>,
+) -> Result<Vec<(String, ModelItem)>, String>
+where
+    F: Fn(AiModelScanProgress) + Sync,
+{
     let handle = mft_core::open_volume(drive_letter)?;
+    let mut phase_started_at = Instant::now();
+    emit_mft_progress(
+        progress,
+        scan_started_at,
+        &phase_started_at,
+        "mft_enumerate",
+        &format!("正在枚举 {} 盘 MFT 文件记录", drive_letter),
+    );
     let entries_result = mft_core::enumerate_usn_records_v2(handle, &|_| true);
     mft_core::close_volume(handle);
     let entries = entries_result?;
+    finish_mft_phase(
+        phase_durations,
+        "mft_enumerate",
+        &format!("{} 盘 MFT 枚举", drive_letter),
+        phase_started_at,
+    );
 
+    phase_started_at = Instant::now();
+    emit_mft_progress(
+        progress,
+        scan_started_at,
+        &phase_started_at,
+        "mft_filter",
+        &format!("正在筛选 {} 盘大模型候选", drive_letter),
+    );
     let candidate_ids = entries
         .iter()
         .filter(|entry| !entry.is_dir)
@@ -83,11 +126,25 @@ fn scan_drive_for_model_candidates(
             model_extension_threshold(&entry.name).map(|min_size| (entry.mft_id, min_size))
         })
         .collect::<HashMap<_, _>>();
+    finish_mft_phase(
+        phase_durations,
+        "mft_filter",
+        &format!("{} 盘候选筛选", drive_letter),
+        phase_started_at,
+    );
 
     if candidate_ids.is_empty() {
         return Ok(Vec::new());
     }
 
+    phase_started_at = Instant::now();
+    emit_mft_progress(
+        progress,
+        scan_started_at,
+        &phase_started_at,
+        "mft_metadata",
+        &format!("正在读取 {} 盘候选文件大小", drive_letter),
+    );
     let reader = mft_core::NtfsFileMetadataReader::open(drive_letter)?;
     let wanted_ids = candidate_ids.keys().copied().collect::<HashSet<_>>();
     let metadata_map = reader.read_file_metadata_map(&wanted_ids, &|_| true)?;
@@ -99,11 +156,25 @@ fn scan_drive_for_model_candidates(
             (metadata.size >= min_size).then_some(*mft_id)
         })
         .collect::<HashSet<_>>();
+    finish_mft_phase(
+        phase_durations,
+        "mft_metadata",
+        &format!("{} 盘大小读取", drive_letter),
+        phase_started_at,
+    );
 
     if retained_ids.is_empty() {
         return Ok(Vec::new());
     }
 
+    phase_started_at = Instant::now();
+    emit_mft_progress(
+        progress,
+        scan_started_at,
+        &phase_started_at,
+        "mft_paths",
+        &format!("正在重建 {} 盘模型路径", drive_letter),
+    );
     let paths = mft_core::rebuild_paths_for_ids(&entries, drive_letter, &retained_ids);
     let mut models = Vec::new();
 
@@ -133,8 +204,44 @@ fn scan_drive_for_model_candidates(
 
         models.push((source_name, ModelItem { name, size, path }));
     }
+    finish_mft_phase(
+        phase_durations,
+        "mft_paths",
+        &format!("{} 盘路径重建", drive_letter),
+        phase_started_at,
+    );
 
     Ok(models)
+}
+
+fn emit_mft_progress<F>(
+    progress: &F,
+    scan_started_at: &Instant,
+    phase_started_at: &Instant,
+    stage: &str,
+    message: &str,
+) where
+    F: Fn(AiModelScanProgress) + Sync,
+{
+    progress(AiModelScanProgress {
+        stage: stage.to_string(),
+        message: message.to_string(),
+        elapsed_ms: scan_started_at.elapsed().as_millis(),
+        stage_elapsed_ms: phase_started_at.elapsed().as_millis(),
+    });
+}
+
+fn finish_mft_phase(
+    phase_durations: &mut Vec<AiModelPhaseDuration>,
+    stage: &str,
+    label: &str,
+    phase_started_at: Instant,
+) {
+    phase_durations.push(AiModelPhaseDuration {
+        stage: stage.to_string(),
+        label: label.to_string(),
+        duration_ms: phase_started_at.elapsed().as_millis(),
+    });
 }
 
 fn is_covered_by_config_layer(path: &Path, covered_roots: &[CoveredRoot]) -> bool {

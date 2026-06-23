@@ -119,14 +119,15 @@
 - **超大磁盘适配**：文件级明细按分片懒加载，几个 TB 的 C 盘也不会因为打开明细而一次性读取超大快照；实际扫描耗时主要取决于文件数量、`$MFT` 体积、硬盘类型和安全软件实时扫描，应用启动后的首次 MFT 扫描可能因系统缓存预热而更慢
 - **模块化实现**：全盘扫描、快照和增长分析代码已迁移到 `src-tauri/src/disk_growth/`，命令入口统一为 `scan_disk_growth`
 
-### 🤖 AI资产分析
+### 🤖 AI 模型空间
 - **功能说明**：快速分析本机 AI 模型、LoRA、Embedding 和模型缓存占用，首页优先展示 AI 资产总占用与最大模型，帮助用户 3 秒内定位空间大户
 - **平台识别优先**：首版支持 Ollama、LM Studio、ComfyUI、HuggingFace Cache；Ollama 会读取 `OLLAMA_MODELS` 并解析 manifest 映射共享 blob，展示真实模型名而不是 `sha256-*` 文件名
 - **配置与结构优先**：HuggingFace 会优先读取 `HF_HOME`；ComfyUI 会识别 Python 版 `extra_model_paths.yaml`、桌面版 `%APPDATA%\ComfyUI\config.json` 的 `basePath`、`extra_models_config.yaml`、默认 `models` 目录和 `diffusion_models`、`text_encoders`、`controlnet` 等现代模型目录；LM Studio 仅识别明确的 `.lmstudio` 路径，避免把普通 `models` 目录误判为 LM Studio
 - **深度发现开关**：默认快速扫描只读取配置、平台目录和用户添加目录；开启“深度发现”后才会追加 MFT 兜底扫描本地 NTFS 盘，按 `.safetensors`/`.gguf` 100MB 以上、`.ckpt` 500MB 以上、`.bin`/`.pt`/`.pth` 1GB 以上过滤大模型候选，并跳过已由配置层覆盖的路径
-- **使用方式**：点击“AI资产分析”模块中的“开始分析”手动触发扫描；可通过“添加目录”补充非默认模型目录，不确定模型放在哪个盘时再开启“深度发现”
-- **结果展示**：提供总占用、最大模型、超过 20GB 的模型数量、Top 大模型列表、平台占用排行、打开目录和复制路径能力；同一路径命中多个来源时按平台优先级去重，避免重复计数
-- **变更点**：Rust `ai_models` 扫描模块新增配置优先 + MFT 兜底分层，`scan_ai_model_assets` Tauri 命令支持深度发现参数，MVP 仅做可视化分析与定位，不提供删除或自动清理
+- **使用方式**：点击“AI 模型空间”模块中的“开始分析”手动触发扫描；可通过“添加目录”补充非默认模型目录，不确定模型放在哪个盘时再开启“深度发现”
+- **结果展示**：提供总占用、最大模型、超过 20GB 的模型数量、Top 大模型列表、平台占用排行、打开目录和一键 Bing 搜索模型能力；ComfyUI 的 `diffusion_models` 等类型会作为灰色标签展示，文件名保持主显示；同一路径命中多个来源时按平台优先级去重，避免重复计数
+- **阶段反馈**：深度发现期间通过 `ai-models:progress` 事件展示 MFT 枚举、候选筛选、大小读取、路径重建和结果汇总等阶段；扫描完成后在总览卡片的耗时入口 hover 展示各阶段耗时与总耗时，便于判断瓶颈且不干扰模型结果主信息
+- **变更点**：Rust `ai_models` 扫描模块新增配置优先 + MFT 兜底分层，`scan_ai_model_assets` Tauri 命令支持深度发现参数和阶段进度事件，MVP 仅做可视化分析与定位，不提供删除或自动清理
 
 ### �🛡️ 安全保护
 - **系统路径保护**：自动识别并跳过关键系统文件和目录
