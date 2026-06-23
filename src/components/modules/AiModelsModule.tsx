@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   BarChart3,
   BrainCircuit,
-  Clipboard,
   FolderOpen,
   Gauge,
   Loader2,
@@ -17,6 +16,7 @@ import { openUrl } from '@tauri-apps/plugin-opener';
 import { ModuleCard } from '../ModuleCard';
 import { EmptyState } from '../EmptyState';
 import { useToast } from '../Toast';
+import { Select, type SelectOption } from '../ui/Select';
 import { useDashboard } from '../../contexts/DashboardContext';
 import {
   openInFolder,
@@ -32,9 +32,10 @@ import { formatSize } from '../../utils/format';
 const CUSTOM_PATHS_STORAGE_KEY = 'lightc.aiModels.customPaths';
 const DEEP_DISCOVERY_STORAGE_KEY = 'lightc.aiModels.deepDiscovery';
 const LARGE_MODEL_THRESHOLD = 20 * 1024 * 1024 * 1024;
-const TOP_MODEL_LIMIT = 8;
+const CHART_COLORS = ['#07c160', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#14b8a6'];
 
-type AiModelViewMode = 'overview' | 'models' | 'platforms';
+type AiModelViewMode = 'overview' | 'models';
+type AiModelSortMode = 'size-desc' | 'name-asc' | 'platform-asc';
 
 interface FlattenedModel extends AiModelItem {
   sourceName: string;
@@ -57,7 +58,9 @@ export function AiModelsModule({ layoutMode = 'cards' }: { layoutMode?: 'cards' 
   const [customPaths, setCustomPaths] = useState<string[]>(() => loadCustomPaths());
   const [enableDeepDiscovery, setEnableDeepDiscovery] = useState(() => loadDeepDiscovery());
   const [viewMode, setViewMode] = useState<AiModelViewMode>('overview');
-  const [selectedSourceName, setSelectedSourceName] = useState<string | null>(null);
+  const [platformFilter, setPlatformFilter] = useState('all');
+  const [typeFilter, setTypeFilter] = useState('all');
+  const [sortMode, setSortMode] = useState<AiModelSortMode>('size-desc');
   const [scanProgress, setScanProgress] = useState<AiModelScanProgress | null>(null);
 
   const allModels = useMemo(() => flattenModels(scanResult), [scanResult]);
@@ -67,9 +70,10 @@ export function AiModelsModule({ layoutMode = 'cards' }: { layoutMode?: 'cards' 
     () => allModels.filter(model => model.size >= LARGE_MODEL_THRESHOLD).length,
     [allModels]
   );
-  const selectedSource = useMemo(
-    () => scanResult?.sources.find(source => source.name === selectedSourceName) ?? scanResult?.sources[0] ?? null,
-    [scanResult, selectedSourceName]
+  const modelTypeOptions = useMemo(() => getModelTypeOptions(allModels), [allModels]);
+  const filteredModels = useMemo(
+    () => filterAndSortModels(allModels, platformFilter, typeFilter, sortMode),
+    [allModels, platformFilter, typeFilter, sortMode]
   );
 
   useEffect(() => {
@@ -92,7 +96,9 @@ export function AiModelsModule({ layoutMode = 'cards' }: { layoutMode?: 'cards' 
     try {
       const result = await scanAiModelAssets(customPaths, enableDeepDiscovery);
       setScanResult(result);
-      setSelectedSourceName(result.sources[0]?.name ?? null);
+      setPlatformFilter('all');
+      setTypeFilter('all');
+      setSortMode('size-desc');
       updateModuleState('aiModels', {
         status: 'done',
         fileCount: result.total_model_count,
@@ -162,15 +168,6 @@ export function AiModelsModule({ layoutMode = 'cards' }: { layoutMode?: 'cards' 
   const handleRemoveCustomPath = useCallback((pathToRemove: string) => {
     setCustomPaths(prev => prev.filter(path => path !== pathToRemove));
   }, []);
-
-  const handleCopyPath = useCallback(async (path: string) => {
-    try {
-      await navigator.clipboard.writeText(path);
-      showToast({ type: 'success', title: '路径已复制' });
-    } catch (error) {
-      showToast({ type: 'error', title: '复制失败', description: String(error) });
-    }
-  }, [showToast]);
 
   const handleSearchModel = useCallback(async (modelName: string) => {
     try {
@@ -283,35 +280,32 @@ export function AiModelsModule({ layoutMode = 'cards' }: { layoutMode?: 'cards' 
             <ViewModeTabs value={viewMode} onChange={setViewMode} />
 
             {viewMode === 'overview' && (
-              <>
-                <ModelTable
-                  title="最大模型"
-                  models={allModels.slice(0, TOP_MODEL_LIMIT)}
-                  onOpenPath={openInFolder}
-                  onSearchModel={handleSearchModel}
-                />
-                <PlatformRanking sources={scanResult.sources} onSelectSource={setSelectedSourceName} />
-              </>
+              <OverviewDashboard
+                scanResult={scanResult}
+                models={allModels}
+              />
             )}
 
             {viewMode === 'models' && (
-              <ModelTable
-                title="全部模型"
-                models={allModels}
-                onOpenPath={openInFolder}
-                onSearchModel={handleSearchModel}
-              />
-            )}
-
-            {viewMode === 'platforms' && (
-              <PlatformDetail
-                sources={scanResult.sources}
-                selectedSource={selectedSource}
-                onSelectSource={setSelectedSourceName}
-                onOpenPath={openInFolder}
-                onCopyPath={handleCopyPath}
-                onSearchModel={handleSearchModel}
-              />
+              <>
+                <ModelListFilters
+                  sources={scanResult.sources}
+                  typeOptions={modelTypeOptions}
+                  platformFilter={platformFilter}
+                  typeFilter={typeFilter}
+                  sortMode={sortMode}
+                  onPlatformChange={setPlatformFilter}
+                  onTypeChange={setTypeFilter}
+                  onSortChange={setSortMode}
+                />
+                <ModelTable
+                  title="模型列表"
+                  models={filteredModels}
+                  totalCount={allModels.length}
+                  onOpenPath={openInFolder}
+                  onSearchModel={handleSearchModel}
+                />
+              </>
             )}
 
             {scanResult.warnings.length > 0 && (
@@ -502,8 +496,7 @@ function InsightsRow({
 function ViewModeTabs({ value, onChange }: { value: AiModelViewMode; onChange: (value: AiModelViewMode) => void }) {
   const tabs: Array<{ value: AiModelViewMode; label: string }> = [
     { value: 'overview', label: '概览' },
-    { value: 'models', label: '模型视图' },
-    { value: 'platforms', label: '平台视图' },
+    { value: 'models', label: '模型列表' },
   ];
 
   return (
@@ -525,14 +518,251 @@ function ViewModeTabs({ value, onChange }: { value: AiModelViewMode; onChange: (
   );
 }
 
+function OverviewDashboard({
+  scanResult,
+  models,
+}: {
+  scanResult: AiModelScanResult;
+  models: FlattenedModel[];
+}) {
+  const modelTypeStats = getModelTypeStats(models);
+  const unknownSource = scanResult.sources.find(source => source.name === '未知来源');
+
+  return (
+    <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
+      <PlatformUsageChart sources={scanResult.sources} />
+      <ModelTypeChart stats={modelTypeStats} />
+
+      {unknownSource && (
+        <div className="xl:col-span-2 rounded-xl border border-amber-500/20 bg-amber-500/10 p-3">
+          <p className="text-xs font-semibold text-amber-700">发现未知来源模型</p>
+          <p className="mt-1 text-xs text-amber-700">
+            {unknownSource.model_count.toLocaleString()} 个模型 · {formatSize(unknownSource.total_size)}。这些文件未匹配到已知平台目录，建议在模型列表中筛选“未知来源”确认归属。
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PlatformUsageChart({ sources }: { sources: AiAssetSource[] }) {
+  const totalSize = sources.reduce((sum, source) => sum + source.total_size, 0);
+  const radius = 46;
+  const circumference = 2 * Math.PI * radius;
+  let accumulatedRatio = 0;
+
+  return (
+    <div className="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-card)] p-4">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-sm font-semibold text-[var(--text-primary)]">平台占用</p>
+        <p className="text-xs text-[var(--text-muted)]">{sources.length.toLocaleString()} 个来源</p>
+      </div>
+
+      <div className="mt-4 grid gap-4 md:grid-cols-[140px_minmax(0,1fr)] md:items-center">
+        <div className="relative mx-auto h-32 w-32">
+          <svg viewBox="0 0 120 120" className="-rotate-90">
+            <circle
+              cx="60"
+              cy="60"
+              r={radius}
+              fill="none"
+              stroke="var(--bg-hover)"
+              strokeWidth="16"
+            />
+            {/* 使用单个 SVG 叠加多个圆环段，避免引入图表依赖并保持渲染成本很低。 */}
+            {sources.map((source, index) => {
+              const ratio = totalSize > 0 ? source.total_size / totalSize : 0;
+              const dashLength = Math.max(0, ratio * circumference);
+              const dashOffset = -accumulatedRatio * circumference;
+              accumulatedRatio += ratio;
+
+              return (
+                <circle
+                  key={source.name}
+                  cx="60"
+                  cy="60"
+                  r={radius}
+                  fill="none"
+                  stroke={CHART_COLORS[index % CHART_COLORS.length]}
+                  strokeWidth="16"
+                  strokeDasharray={`${dashLength} ${circumference - dashLength}`}
+                  strokeDashoffset={dashOffset}
+                  strokeLinecap={ratio > 0.03 ? 'round' : 'butt'}
+                />
+              );
+            })}
+          </svg>
+          <div className="absolute inset-0 flex flex-col items-center justify-center">
+            <span className="text-[11px] text-[var(--text-muted)]">总占用</span>
+            <span className="text-sm font-bold text-[var(--text-primary)]">{formatSize(totalSize)}</span>
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          {sources.length === 0 ? (
+            <p className="text-xs text-[var(--text-muted)]">暂无平台占用数据</p>
+          ) : (
+            sources.map((source, index) => {
+              const percent = totalSize > 0 ? (source.total_size / totalSize) * 100 : 0;
+              return (
+                <div key={source.name} className="flex items-center gap-2 text-xs">
+                  <span
+                    className="h-2.5 w-2.5 shrink-0 rounded-full"
+                    style={{ backgroundColor: CHART_COLORS[index % CHART_COLORS.length] }}
+                  />
+                  <span className="min-w-0 flex-1 truncate font-medium text-[var(--text-primary)]" title={source.name}>
+                    {source.name}
+                  </span>
+                  <span className="shrink-0 tabular-nums text-[var(--text-muted)]">{percent.toFixed(1)}%</span>
+                  <span className="w-20 shrink-0 text-right font-semibold tabular-nums text-[var(--brand-green)]">
+                    {formatSize(source.total_size)}
+                  </span>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ModelTypeChart({ stats }: { stats: Array<{ type: string; count: number; size: number }> }) {
+  const visibleStats = stats.slice(0, 8);
+  const maxSize = Math.max(...visibleStats.map(item => item.size), 1);
+
+  return (
+    <div className="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-card)] p-4">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-sm font-semibold text-[var(--text-primary)]">类型分布</p>
+        <p className="text-xs text-[var(--text-muted)]">{stats.length.toLocaleString()} 类</p>
+      </div>
+
+      <div className="mt-4">
+        <div className="flex h-36 items-end gap-2 border-b border-[var(--border-color)] pb-2">
+          {visibleStats.length === 0 ? (
+            <div className="flex h-full w-full items-center justify-center text-xs text-[var(--text-muted)]">
+              暂无类型分布数据
+            </div>
+          ) : (
+            visibleStats.map((item, index) => {
+              const heightPercent = Math.max(6, (item.size / maxSize) * 100);
+              return (
+                <div key={item.type} className="flex min-w-0 flex-1 flex-col items-center gap-2">
+                  <div className="flex h-28 w-full items-end justify-center">
+                    <div
+                      className="w-full max-w-10 rounded-t-lg transition"
+                      style={{
+                        height: `${heightPercent}%`,
+                        backgroundColor: CHART_COLORS[index % CHART_COLORS.length],
+                      }}
+                      title={`${item.type} · ${formatSize(item.size)} · ${item.count} 个模型`}
+                    />
+                  </div>
+                  <span className="w-full truncate text-center text-[10px] text-[var(--text-muted)]" title={item.type}>
+                    {item.type}
+                  </span>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          {/* 柱状图只展示前 8 类，避免模型类型过多时标签拥挤；完整明细仍由模型列表筛选承载。 */}
+          {visibleStats.map((item, index) => (
+            <div key={item.type} className="flex min-w-0 items-center gap-2 text-xs">
+              <span
+                className="h-2.5 w-2.5 shrink-0 rounded-sm"
+                style={{ backgroundColor: CHART_COLORS[index % CHART_COLORS.length] }}
+              />
+              <span className="min-w-0 flex-1 truncate text-[var(--text-primary)]" title={item.type}>{item.type}</span>
+              <span className="shrink-0 font-semibold tabular-nums text-[var(--brand-green)]">{formatSize(item.size)}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ModelListFilters({
+  sources,
+  typeOptions,
+  platformFilter,
+  typeFilter,
+  sortMode,
+  onPlatformChange,
+  onTypeChange,
+  onSortChange,
+}: {
+  sources: AiAssetSource[];
+  typeOptions: string[];
+  platformFilter: string;
+  typeFilter: string;
+  sortMode: AiModelSortMode;
+  onPlatformChange: (value: string) => void;
+  onTypeChange: (value: string) => void;
+  onSortChange: (value: AiModelSortMode) => void;
+}) {
+  const platformOptions: SelectOption[] = [
+    { value: 'all', label: '全部平台' },
+    ...sources.map(source => ({ value: source.name, label: source.name })),
+  ];
+  const typeSelectOptions: SelectOption[] = [
+    { value: 'all', label: '全部类型' },
+    ...typeOptions.map(type => ({ value: type, label: type })),
+  ];
+  const sortOptions: SelectOption<AiModelSortMode>[] = [
+    { value: 'size-desc', label: '按大小降序' },
+    { value: 'name-asc', label: '按名称升序' },
+    { value: 'platform-asc', label: '按平台升序' },
+  ];
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-xl border border-[var(--border-color)] bg-[var(--bg-main)] p-3">
+      <FilterField label="平台">
+        <Select value={platformFilter} options={platformOptions} onChange={onPlatformChange} widthClass="w-36" size="sm" />
+      </FilterField>
+
+      <FilterField label="类型">
+        <Select value={typeFilter} options={typeSelectOptions} onChange={onTypeChange} widthClass="w-36" size="sm" />
+      </FilterField>
+
+      <FilterField label="排序">
+        <Select value={sortMode} options={sortOptions} onChange={onSortChange} widthClass="w-32" size="sm" />
+      </FilterField>
+    </div>
+  );
+}
+
+function FilterField({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
+      <span>{label}</span>
+      {children}
+    </div>
+  );
+}
+
 function ModelTable({
   title,
   models,
+  totalCount,
+  compact = false,
   onOpenPath,
   onSearchModel,
 }: {
   title: string;
   models: FlattenedModel[];
+  totalCount?: number;
+  compact?: boolean;
   onOpenPath: (path: string) => Promise<void>;
   onSearchModel: (modelName: string) => Promise<void>;
 }) {
@@ -540,14 +770,16 @@ function ModelTable({
     <div className="overflow-hidden rounded-2xl border border-[var(--border-color)] bg-[var(--bg-card)]">
       <div className="flex items-center justify-between border-b border-[var(--border-color)] px-4 py-3">
         <p className="text-sm font-semibold text-[var(--text-primary)]">{title}</p>
-        <p className="text-xs text-[var(--text-muted)]">{models.length.toLocaleString()} 项</p>
+        <p className="text-xs text-[var(--text-muted)]">
+          {models.length.toLocaleString()} / {(totalCount ?? models.length).toLocaleString()} 项
+        </p>
       </div>
       <div className="divide-y divide-[var(--border-color)]">
         {models.map(model => {
           const displayName = splitDisplayModelName(model.name);
 
           return (
-            <div key={`${model.sourceName}-${model.path}-${model.name}`} className="flex items-center gap-3 px-4 py-3 hover:bg-[var(--bg-hover)] transition">
+            <div key={`${model.sourceName}-${model.path}-${model.name}`} className={`flex items-center gap-3 px-4 hover:bg-[var(--bg-hover)] transition ${compact ? 'py-2.5' : 'py-3'}`}>
               <div className="flex min-w-0 flex-1 items-center gap-3">
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[var(--brand-green)]/10">
                   <BrainCircuit className="h-4 w-4 text-[var(--brand-green)]" />
@@ -577,99 +809,6 @@ function ModelTable({
             </div>
           );
         })}
-      </div>
-    </div>
-  );
-}
-
-function PlatformRanking({ sources, onSelectSource }: { sources: AiAssetSource[]; onSelectSource: (name: string) => void }) {
-  const maxSize = Math.max(...sources.map(source => source.total_size), 1);
-
-  return (
-    <div className="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-card)] p-4">
-      <p className="mb-3 text-sm font-semibold text-[var(--text-primary)]">平台占用</p>
-      <div className="space-y-3">
-        {sources.map(source => (
-          <button
-            key={source.name}
-            onClick={() => onSelectSource(source.name)}
-            className="block w-full rounded-xl border border-[var(--border-color)] bg-[var(--bg-main)] p-3 text-left hover:border-[var(--brand-green)]/30 transition"
-          >
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-sm font-semibold text-[var(--text-primary)]">{source.name}</p>
-                <p className="text-xs text-[var(--text-muted)]">{source.model_count.toLocaleString()} 个资产</p>
-              </div>
-              <p className="text-sm font-bold text-[var(--brand-green)]">{formatSize(source.total_size)}</p>
-            </div>
-            <div className="mt-3 h-2 overflow-hidden rounded-full bg-[var(--bg-hover)]">
-              <div
-                className="h-full rounded-full bg-[var(--brand-green)]"
-                style={{ width: `${Math.max(4, (source.total_size / maxSize) * 100)}%` }}
-              />
-            </div>
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function PlatformDetail({
-  sources,
-  selectedSource,
-  onSelectSource,
-  onOpenPath,
-  onCopyPath,
-  onSearchModel,
-}: {
-  sources: AiAssetSource[];
-  selectedSource: AiAssetSource | null;
-  onSelectSource: (name: string) => void;
-  onOpenPath: (path: string) => Promise<void>;
-  onCopyPath: (path: string) => Promise<void>;
-  onSearchModel: (modelName: string) => Promise<void>;
-}) {
-  if (!selectedSource) return null;
-
-  return (
-    <div className="grid gap-4 lg:grid-cols-[260px_1fr]">
-      <div className="space-y-2">
-        {sources.map(source => (
-          <button
-            key={source.name}
-            onClick={() => onSelectSource(source.name)}
-            className={`w-full rounded-xl border p-3 text-left transition ${
-              selectedSource.name === source.name
-                ? 'border-[var(--brand-green)] bg-[var(--brand-green)]/10'
-                : 'border-[var(--border-color)] bg-[var(--bg-main)] hover:border-[var(--brand-green)]/30'
-            }`}
-          >
-            <p className="text-sm font-semibold text-[var(--text-primary)]">{source.name}</p>
-            <p className="mt-1 text-xs text-[var(--text-muted)]">{formatSize(source.total_size)} · {source.model_count} 项</p>
-          </button>
-        ))}
-      </div>
-      <div className="space-y-3">
-        <div className="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-card)] p-4">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <p className="text-lg font-bold text-[var(--text-primary)]">{selectedSource.name}</p>
-              <p className="mt-1 text-sm text-[var(--brand-green)]">{formatSize(selectedSource.total_size)} · {selectedSource.model_count} 项</p>
-              <p className="mt-2 truncate text-xs text-[var(--text-muted)]" title={selectedSource.path}>{selectedSource.path}</p>
-            </div>
-            <div className="flex shrink-0 items-center gap-1">
-              <IconButton title="打开平台目录" onClick={() => onOpenPath(selectedSource.path)} icon={<FolderOpen className="w-4 h-4" />} />
-              <IconButton title="复制平台路径" onClick={() => onCopyPath(selectedSource.path)} icon={<Clipboard className="w-4 h-4" />} />
-            </div>
-          </div>
-        </div>
-        <ModelTable
-          title={`${selectedSource.name} 模型`}
-          models={selectedSource.models.map(model => ({ ...model, sourceName: selectedSource.name }))}
-          onOpenPath={onOpenPath}
-          onSearchModel={onSearchModel}
-        />
       </div>
     </div>
   );
@@ -711,6 +850,56 @@ function flattenModels(scanResult: AiModelScanResult | null): FlattenedModel[] {
   return scanResult.sources
     .flatMap(source => source.models.map(model => ({ ...model, sourceName: source.name })))
     .sort((left, right) => right.size - left.size);
+}
+
+function filterAndSortModels(
+  models: FlattenedModel[],
+  platformFilter: string,
+  typeFilter: string,
+  sortMode: AiModelSortMode
+): FlattenedModel[] {
+  const filteredModels = models.filter(model => {
+    const modelType = getModelType(model);
+    return (platformFilter === 'all' || model.sourceName === platformFilter)
+      && (typeFilter === 'all' || modelType === typeFilter);
+  });
+
+  return [...filteredModels].sort((left, right) => {
+    if (sortMode === 'name-asc') {
+      return splitDisplayModelName(left.name).title.localeCompare(splitDisplayModelName(right.name).title);
+    }
+    if (sortMode === 'platform-asc') {
+      return left.sourceName.localeCompare(right.sourceName) || right.size - left.size;
+    }
+    return right.size - left.size;
+  });
+}
+
+function getModelTypeOptions(models: FlattenedModel[]): string[] {
+  return Array.from(new Set(models.map(getModelType))).sort((left, right) => left.localeCompare(right));
+}
+
+function getModelTypeStats(models: FlattenedModel[]): Array<{ type: string; count: number; size: number }> {
+  const stats = new Map<string, { type: string; count: number; size: number }>();
+
+  for (const model of models) {
+    const type = getModelType(model);
+    const current = stats.get(type) ?? { type, count: 0, size: 0 };
+    current.count += 1;
+    current.size += model.size;
+    stats.set(type, current);
+  }
+
+  return Array.from(stats.values()).sort((left, right) => right.size - left.size);
+}
+
+function getModelType(model: AiModelItem): string {
+  const typeLabel = splitDisplayModelName(model.name).typeLabel;
+  if (typeLabel) return typeLabel;
+
+  const extension = model.path.split('.').pop()?.trim().toLowerCase();
+  // 自定义目录或 MFT 兜底可能没有平台类型标签，此时扩展名比“未知”更利于筛选和统计。
+  return extension ? `.${extension}` : '未知类型';
 }
 
 function splitDisplayModelName(name: string): DisplayModelName {
