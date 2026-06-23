@@ -16,6 +16,7 @@ import { openUrl } from '@tauri-apps/plugin-opener';
 import { ModuleCard } from '../ModuleCard';
 import { EmptyState } from '../EmptyState';
 import { useToast } from '../Toast';
+import { DonutChart, ColumnChart, CHART_PALETTE, type ChartItem } from '../ui/charts';
 import { Select, type SelectOption } from '../ui/Select';
 import { useDashboard } from '../../contexts/DashboardContext';
 import {
@@ -32,7 +33,6 @@ import { formatSize } from '../../utils/format';
 const CUSTOM_PATHS_STORAGE_KEY = 'lightc.aiModels.customPaths';
 const DEEP_DISCOVERY_STORAGE_KEY = 'lightc.aiModels.deepDiscovery';
 const LARGE_MODEL_THRESHOLD = 20 * 1024 * 1024 * 1024;
-const CHART_COLORS = ['#07c160', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#14b8a6'];
 
 type AiModelViewMode = 'overview' | 'models';
 type AiModelSortMode = 'size-desc' | 'name-asc' | 'platform-asc';
@@ -547,9 +547,18 @@ function OverviewDashboard({
 
 function PlatformUsageChart({ sources }: { sources: AiAssetSource[] }) {
   const totalSize = sources.reduce((sum, source) => sum + source.total_size, 0);
-  const radius = 46;
-  const circumference = 2 * Math.PI * radius;
-  let accumulatedRatio = 0;
+  const chartItems: ChartItem[] = sources.map((source, index) => {
+    const percent = totalSize > 0 ? (source.total_size / totalSize) * 100 : 0;
+    return {
+      id: source.name,
+      label: source.name,
+      value: source.total_size,
+      valueLabel: formatSize(source.total_size),
+      percentLabel: `${percent.toFixed(1)}%`,
+      secondaryLabel: `${source.model_count.toLocaleString()} 个模型`,
+      color: CHART_PALETTE[index % CHART_PALETTE.length],
+    };
+  });
 
   return (
     <div className="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-card)] p-4">
@@ -558,70 +567,13 @@ function PlatformUsageChart({ sources }: { sources: AiAssetSource[] }) {
         <p className="text-xs text-[var(--text-muted)]">{sources.length.toLocaleString()} 个来源</p>
       </div>
 
-      <div className="mt-4 grid gap-4 md:grid-cols-[140px_minmax(0,1fr)] md:items-center">
-        <div className="relative mx-auto h-32 w-32">
-          <svg viewBox="0 0 120 120" className="-rotate-90">
-            <circle
-              cx="60"
-              cy="60"
-              r={radius}
-              fill="none"
-              stroke="var(--bg-hover)"
-              strokeWidth="16"
-            />
-            {/* 使用单个 SVG 叠加多个圆环段，避免引入图表依赖并保持渲染成本很低。 */}
-            {sources.map((source, index) => {
-              const ratio = totalSize > 0 ? source.total_size / totalSize : 0;
-              const dashLength = Math.max(0, ratio * circumference);
-              const dashOffset = -accumulatedRatio * circumference;
-              accumulatedRatio += ratio;
-
-              return (
-                <circle
-                  key={source.name}
-                  cx="60"
-                  cy="60"
-                  r={radius}
-                  fill="none"
-                  stroke={CHART_COLORS[index % CHART_COLORS.length]}
-                  strokeWidth="16"
-                  strokeDasharray={`${dashLength} ${circumference - dashLength}`}
-                  strokeDashoffset={dashOffset}
-                  strokeLinecap={ratio > 0.03 ? 'round' : 'butt'}
-                />
-              );
-            })}
-          </svg>
-          <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <span className="text-[11px] text-[var(--text-muted)]">总占用</span>
-            <span className="text-sm font-bold text-[var(--text-primary)]">{formatSize(totalSize)}</span>
-          </div>
-        </div>
-
-        <div className="space-y-2">
-          {sources.length === 0 ? (
-            <p className="text-xs text-[var(--text-muted)]">暂无平台占用数据</p>
-          ) : (
-            sources.map((source, index) => {
-              const percent = totalSize > 0 ? (source.total_size / totalSize) * 100 : 0;
-              return (
-                <div key={source.name} className="flex items-center gap-2 text-xs">
-                  <span
-                    className="h-2.5 w-2.5 shrink-0 rounded-full"
-                    style={{ backgroundColor: CHART_COLORS[index % CHART_COLORS.length] }}
-                  />
-                  <span className="min-w-0 flex-1 truncate font-medium text-[var(--text-primary)]" title={source.name}>
-                    {source.name}
-                  </span>
-                  <span className="shrink-0 tabular-nums text-[var(--text-muted)]">{percent.toFixed(1)}%</span>
-                  <span className="w-20 shrink-0 text-right font-semibold tabular-nums text-[var(--brand-green)]">
-                    {formatSize(source.total_size)}
-                  </span>
-                </div>
-              );
-            })
-          )}
-        </div>
+      <div className="mt-4">
+        <DonutChart
+          items={chartItems}
+          totalLabel="总占用"
+          totalValueLabel={formatSize(totalSize)}
+          emptyText="暂无平台占用数据"
+        />
       </div>
     </div>
   );
@@ -629,7 +581,14 @@ function PlatformUsageChart({ sources }: { sources: AiAssetSource[] }) {
 
 function ModelTypeChart({ stats }: { stats: Array<{ type: string; count: number; size: number }> }) {
   const visibleStats = stats.slice(0, 8);
-  const maxSize = Math.max(...visibleStats.map(item => item.size), 1);
+  const chartItems: ChartItem[] = visibleStats.map((item, index) => ({
+    id: item.type,
+    label: item.type,
+    value: item.size,
+    valueLabel: formatSize(item.size),
+    secondaryLabel: `${item.count.toLocaleString()} 个模型`,
+    color: CHART_PALETTE[index % CHART_PALETTE.length],
+  }));
 
   return (
     <div className="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-card)] p-4">
@@ -639,48 +598,8 @@ function ModelTypeChart({ stats }: { stats: Array<{ type: string; count: number;
       </div>
 
       <div className="mt-4">
-        <div className="flex h-36 items-end gap-2 border-b border-[var(--border-color)] pb-2">
-          {visibleStats.length === 0 ? (
-            <div className="flex h-full w-full items-center justify-center text-xs text-[var(--text-muted)]">
-              暂无类型分布数据
-            </div>
-          ) : (
-            visibleStats.map((item, index) => {
-              const heightPercent = Math.max(6, (item.size / maxSize) * 100);
-              return (
-                <div key={item.type} className="flex min-w-0 flex-1 flex-col items-center gap-2">
-                  <div className="flex h-28 w-full items-end justify-center">
-                    <div
-                      className="w-full max-w-10 rounded-t-lg transition"
-                      style={{
-                        height: `${heightPercent}%`,
-                        backgroundColor: CHART_COLORS[index % CHART_COLORS.length],
-                      }}
-                      title={`${item.type} · ${formatSize(item.size)} · ${item.count} 个模型`}
-                    />
-                  </div>
-                  <span className="w-full truncate text-center text-[10px] text-[var(--text-muted)]" title={item.type}>
-                    {item.type}
-                  </span>
-                </div>
-              );
-            })
-          )}
-        </div>
-
-        <div className="mt-3 grid grid-cols-2 gap-2">
-          {/* 柱状图只展示前 8 类，避免模型类型过多时标签拥挤；完整明细仍由模型列表筛选承载。 */}
-          {visibleStats.map((item, index) => (
-            <div key={item.type} className="flex min-w-0 items-center gap-2 text-xs">
-              <span
-                className="h-2.5 w-2.5 shrink-0 rounded-sm"
-                style={{ backgroundColor: CHART_COLORS[index % CHART_COLORS.length] }}
-              />
-              <span className="min-w-0 flex-1 truncate text-[var(--text-primary)]" title={item.type}>{item.type}</span>
-              <span className="shrink-0 font-semibold tabular-nums text-[var(--brand-green)]">{formatSize(item.size)}</span>
-            </div>
-          ))}
-        </div>
+        {/* 柱状图只展示前 8 类，避免模型类型过多时标签拥挤；完整明细仍由模型列表筛选承载。 */}
+        <ColumnChart items={chartItems} emptyText="暂无类型分布数据" />
       </div>
     </div>
   );

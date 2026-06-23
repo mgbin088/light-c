@@ -1,15 +1,11 @@
 #![cfg(target_os = "windows")]
 
 use crate::ai_models::types::{AiModelPhaseDuration, AiModelScanProgress, AssetSource, ModelItem};
+use crate::ai_models::model_file_rules::mft_model_min_size;
 use crate::scanner::big_files_engine::mft_core;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
-
-const SAFETENSORS_MIN_SIZE: u64 = 100 * 1024 * 1024;
-const GGUF_MIN_SIZE: u64 = 100 * 1024 * 1024;
-const CKPT_MIN_SIZE: u64 = 500 * 1024 * 1024;
-const NOISY_MODEL_MIN_SIZE: u64 = 1024 * 1024 * 1024;
 
 #[derive(Debug, Clone)]
 pub struct CoveredRoot {
@@ -252,19 +248,8 @@ fn is_covered_by_config_layer(path: &Path, covered_roots: &[CoveredRoot]) -> boo
 }
 
 fn model_extension_threshold(file_name: &str) -> Option<u64> {
-    let extension = Path::new(file_name)
-        .extension()
-        .and_then(|value| value.to_str())?
-        .to_ascii_lowercase();
-
-    match extension.as_str() {
-        "safetensors" => Some(SAFETENSORS_MIN_SIZE),
-        "gguf" => Some(GGUF_MIN_SIZE),
-        "ckpt" => Some(CKPT_MIN_SIZE),
-        // .bin/.pt/.pth 误判率高，MFT 兜底里必须提高阈值，只做大体积模型候选。
-        "bin" | "pt" | "pth" => Some(NOISY_MODEL_MIN_SIZE),
-        _ => None,
-    }
+    // MFT 先按文件名过滤，统一规则里已经按扩展名误判风险设置不同大小阈值。
+    mft_model_min_size(file_name)
 }
 
 fn infer_source_name(path: &Path, covered_roots: &[CoveredRoot]) -> String {

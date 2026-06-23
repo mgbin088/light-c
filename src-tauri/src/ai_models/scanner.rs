@@ -1,5 +1,6 @@
 use crate::ai_models::detectors::create_detectors;
 use crate::ai_models::mft_discovery::{discover_models_via_mft, CoveredRoot};
+use crate::ai_models::model_file_rules::is_model_file_path;
 use crate::ai_models::types::{
     AiModelPhaseDuration, AiModelScanProgress, AiModelScanResult, AssetSource,
 };
@@ -278,15 +279,7 @@ fn model_identity_key(source_name: &str, model_name: &str, path: &Path) -> Strin
 }
 
 fn looks_like_model_file_path(path: &Path) -> bool {
-    path.extension()
-        .and_then(|value| value.to_str())
-        .map(|extension| {
-            matches!(
-                extension.to_ascii_lowercase().as_str(),
-                "gguf" | "safetensors" | "ckpt" | "onnx" | "pt" | "pth" | "bin"
-            )
-        })
-        .unwrap_or(false)
+    is_model_file_path(path)
 }
 
 fn canonical_path_key(path: &Path) -> String {

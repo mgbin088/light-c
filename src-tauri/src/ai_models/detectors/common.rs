@@ -1,9 +1,10 @@
+use crate::ai_models::model_file_rules::{
+    is_custom_directory_model_file, is_model_package_directory, is_supported_model_extension,
+};
 use crate::ai_models::types::{AssetSource, ModelItem};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use walkdir::{DirEntry, WalkDir};
-
-const CUSTOM_MODEL_MIN_SIZE: u64 = 100 * 1024 * 1024;
 
 pub fn user_home_dir() -> Option<PathBuf> {
     dirs::home_dir()
@@ -53,25 +54,7 @@ pub fn file_size(path: &Path) -> Option<u64> {
 }
 
 pub fn is_model_extension(path: &Path) -> bool {
-    let Some(extension) = path.extension().and_then(|value| value.to_str()) else {
-        return false;
-    };
-
-    matches!(
-        extension.to_ascii_lowercase().as_str(),
-        "gguf" | "safetensors" | "ckpt" | "onnx" | "pt" | "pth" | "bin"
-    )
-}
-
-pub fn is_high_confidence_model_extension(path: &Path) -> bool {
-    let Some(extension) = path.extension().and_then(|value| value.to_str()) else {
-        return false;
-    };
-
-    matches!(
-        extension.to_ascii_lowercase().as_str(),
-        "gguf" | "safetensors" | "ckpt"
-    )
+    is_supported_model_extension(path)
 }
 
 pub fn collect_model_files(root: &Path, custom_mode: bool) -> Vec<ModelItem> {
@@ -80,18 +63,35 @@ pub fn collect_model_files(root: &Path, custom_mode: bool) -> Vec<ModelItem> {
         .into_iter()
         .filter_entry(skip_hidden_system_noise)
         .filter_map(Result::ok)
-        .filter(|entry| entry.file_type().is_file())
         .filter_map(|entry| {
             let path = entry.path();
+            if entry.file_type().is_dir() && is_model_package_directory(path) {
+                // Core ML 的 .mlpackage 是目录包，不会被文件扩展名逻辑命中，需要按目录整体计入资产。
+                let size = directory_size(path);
+                if size > 0 {
+                    return Some(ModelItem {
+                        name: path
+                            .file_name()
+                            .and_then(|value| value.to_str())
+                            .unwrap_or("未命名模型包")
+                            .to_string(),
+                        size,
+                        path: path.to_path_buf(),
+                    });
+                }
+            }
+
+            if !entry.file_type().is_file() {
+                return None;
+            }
+
             if !is_model_extension(path) {
                 return None;
             }
 
             let size = file_size(path)?;
-            // 自定义目录没有平台结构兜底，必须收紧条件，避免 .bin/.pt 这类扩展造成大量误判。
-            if custom_mode
-                && (size < CUSTOM_MODEL_MIN_SIZE || !is_high_confidence_model_extension(path))
-            {
+            // 自定义目录没有平台结构兜底，必须使用更保守的统一规则，避免 .bin/.pt 这类扩展造成大量误判。
+            if custom_mode && !is_custom_directory_model_file(path, size) {
                 return None;
             }
 

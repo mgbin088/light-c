@@ -1,5 +1,6 @@
 mod detectors;
 mod mft_discovery;
+mod model_file_rules;
 mod scanner;
 mod types;
 
