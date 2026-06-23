@@ -1236,11 +1236,36 @@ export async function setDataDirectory(path: string): Promise<string> {
   return invoke<string>('set_data_directory', { path });
 }
 
+export interface ClearableDataItem {
+  id: string;
+  label: string;
+  description: string;
+  path: string;
+  item_type: 'file' | 'directory';
+  exists: boolean;
+  file_count: number;
+  size: number;
+  warning?: string | null;
+}
+
+export interface ClearLocalDataResult {
+  deleted_files: number;
+  freed_bytes: number;
+}
+
 /**
  * 娓呯┖鏈湴鏁版嵁锛堝畨瑁呭巻鍙茬紦瀛?+ 娓呯悊鏃ュ織锛? * @returns [鍒犻櫎鏂囦欢鏁? 閲婃斁瀛楄妭鏁癩
  */
 export async function clearLocalData(): Promise<[number, number]> {
   return invoke<[number, number]>('clear_local_data');
+}
+
+export async function listClearableDataItems(): Promise<ClearableDataItem[]> {
+  return invoke<ClearableDataItem[]>('list_clearable_data_items');
+}
+
+export async function clearSelectedLocalData(itemIds: string[]): Promise<ClearLocalDataResult> {
+  return invoke<ClearLocalDataResult>('clear_selected_local_data', { itemIds });
 }
 
 /**

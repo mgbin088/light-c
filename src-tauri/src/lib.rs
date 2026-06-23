@@ -118,6 +118,8 @@ pub fn run() {
             get_data_directory,
             set_data_directory,
             clear_local_data,
+            list_clearable_data_items,
+            clear_selected_local_data,
             pick_folder_dialog,
             // AI 资产分析
             scan_ai_model_assets,
