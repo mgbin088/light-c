@@ -19,6 +19,7 @@ import { useToast } from '../Toast';
 import { DonutChart, ColumnChart, CHART_PALETTE, type ChartItem } from '../ui/charts';
 import { Select, type SelectOption } from '../ui/Select';
 import { useDashboard } from '../../contexts/DashboardContext';
+import { shouldSkipInactivePageRender, type ModuleRenderProps } from './moduleProps';
 import {
   openInFolder,
   pickFolderDialog,
@@ -46,7 +47,7 @@ interface DisplayModelName {
   typeLabel: string | null;
 }
 
-export function AiModelsModule({ layoutMode = 'cards' }: { layoutMode?: 'cards' | 'pages' }) {
+export function AiModelsModule({ layoutMode = 'cards', isPageActive = true }: ModuleRenderProps) {
   const { modules, expandedModule, setExpandedModule, updateModuleState, oneClickScanTrigger } = useDashboard();
   const moduleState = modules.aiModels;
   const { showToast } = useToast();
@@ -183,6 +184,10 @@ export function AiModelsModule({ layoutMode = 'cards' }: { layoutMode?: 'cards' 
 
   const isExpanded = expandedModule === 'aiModels';
   const isScanning = moduleState.status === 'scanning';
+
+  if (shouldSkipInactivePageRender(layoutMode, isPageActive)) {
+    return null;
+  }
 
   return (
     <ModuleCard

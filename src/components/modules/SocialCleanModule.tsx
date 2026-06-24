@@ -46,6 +46,7 @@ import {
   getRiskLevelTooltip
 } from '../../api/commands';
 import { formatSize } from '../../utils/format';
+import { shouldSkipInactivePageRender, type ModuleRenderProps } from './moduleProps';
 
 // ============================================================================
 // 分类配置
@@ -104,7 +105,7 @@ const riskLevelConfig: Record<RiskLevel, {
 // 组件实现
 // ============================================================================
 
-export function SocialCleanModule({ layoutMode = 'cards' }: { layoutMode?: 'cards' | 'pages' }) {
+export function SocialCleanModule({ layoutMode = 'cards', isPageActive = true }: ModuleRenderProps) {
   const { modules, expandedModule, setExpandedModule, updateModuleState, triggerHealthRefresh, oneClickScanTrigger } = useDashboard();
   const moduleState = modules.social;
   const { showToast } = useToast();
@@ -277,6 +278,10 @@ export function SocialCleanModule({ layoutMode = 'cards' }: { layoutMode?: 'card
     }), { files: 0, size: 0 }) || { files: 0, size: 0 };
 
   const isExpanded = expandedModule === 'social';
+
+  if (shouldSkipInactivePageRender(layoutMode, isPageActive) && !isDeleting && !showDeleteConfirm && !fileModalData) {
+    return null;
+  }
 
   return (
     <>

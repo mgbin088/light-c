@@ -16,12 +16,13 @@ import { useDashboard } from '../../contexts/DashboardContext';
 import { scanLargeFiles, cancelLargeFileScan, deleteFiles, openInFolder, openFile, recordCleanupAction, type CleanupLogEntryInput } from '../../api/commands';
 import { formatSize, formatDate, getRiskLevelColor, getRiskLevelBgColor, getRiskLevelText } from '../../utils/format';
 import type { LargeFileEntry, LargeFileScanProgress } from '../../types';
+import { shouldSkipInactivePageRender, type ModuleRenderProps } from './moduleProps';
 
 // ============================================================================
 // 组件实现
 // ============================================================================
 
-export function BigFilesModule({ layoutMode = 'cards' }: { layoutMode?: 'cards' | 'pages' }) {
+export function BigFilesModule({ layoutMode = 'cards', isPageActive = true }: ModuleRenderProps) {
   const { modules, expandedModule, setExpandedModule, updateModuleState, triggerHealthRefresh, oneClickScanTrigger } = useDashboard();
   const moduleState = modules.bigFiles;
   const { showToast } = useToast();
@@ -274,6 +275,10 @@ export function BigFilesModule({ layoutMode = 'cards' }: { layoutMode?: 'cards' 
   const displayElapsedSeconds = isScanning
     ? scanElapsed
     : Math.round(backendElapsedMs / 1000);
+
+  if (shouldSkipInactivePageRender(layoutMode, isPageActive) && !isDeleting && !showDeleteConfirm) {
+    return null;
+  }
 
   return (
     <>

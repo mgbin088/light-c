@@ -120,7 +120,7 @@ function DashboardContent() {
       <AnchorNav scrollContainerRef={scrollContainerRef} />
       <BackToTopButton scrollContainerRef={scrollContainerRef} />
 
-      {/* 主内容区 - 模块始终挂在同一个父容器内，布局模式只改变展示方式，避免切换模式时丢失本地状态。 */}
+      {/* 主内容区 - 页面模式下模块实例仍常驻，但 inactive 模块会自行跳过重结果 DOM。 */}
       <main className="flex-1 min-h-0 overflow-hidden bg-[var(--bg-base)]">
         <div className="h-full min-h-0 flex flex-col">
           <div ref={scrollContainerRef} className="flex-1 min-h-0 overflow-auto">
@@ -129,7 +129,7 @@ function DashboardContent() {
                 const ModuleComponent = moduleConfig.component;
                 const isActivePage = visibleModuleId === moduleConfig.id;
                 return (
-                  <motion.div
+                  <div
                     key={moduleConfig.id}
                     data-module-id={moduleConfig.id}
                     className={
@@ -140,24 +140,10 @@ function DashboardContent() {
                         : 'relative'
                     }
                     style={isActivePage && isPageMode ? { contentVisibility: 'auto' } : undefined}
-                    initial={false}
-                    animate={
-                      isPageMode
-                        ? {
-                            opacity: isActivePage ? 1 : 0,
-                            y: isActivePage ? 0 : 8,
-                            pointerEvents: isActivePage ? 'auto' : 'none',
-                          }
-                        : { opacity: 1, y: 0, pointerEvents: 'auto' }
-                    }
-                    transition={{
-                      duration: isPageMode && transitionModuleId === moduleConfig.id ? 0.24 : 0,
-                      ease: [0.22, 1, 0.36, 1],
-                    }}
                   >
                     <PageTransitionAccent active={isPageMode && isActivePage && transitionModuleId === moduleConfig.id} />
-                    <ModuleComponent layoutMode={settings.layoutMode} />
-                  </motion.div>
+                    <ModuleComponent layoutMode={settings.layoutMode} isPageActive={isActivePage} />
+                  </div>
                 );
               })}
 

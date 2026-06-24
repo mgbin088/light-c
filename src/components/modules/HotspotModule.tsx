@@ -16,6 +16,7 @@ import { useDashboard, useSettings } from '../../contexts';
 import { scanHotspot, cancelHotspotScan, openInFolder, cleanupDirectoryContents, type HotspotScanResult, type HotspotEntry, type HotspotScanProgress } from '../../api/commands';
 import { formatSize } from '../../utils/format';
 import { DrillDownModal } from './DrillDownModal';
+import { shouldSkipInactivePageRender, type ModuleRenderProps } from './moduleProps';
 
 // ============================================================================
 // 工具函数
@@ -406,7 +407,7 @@ function HotspotItem({ entry, rank, maxSize, isFullScan, onOpenFolder, onCleanup
 // 主组件
 // ============================================================================
 
-export function HotspotModule({ layoutMode = 'cards' }: { layoutMode?: 'cards' | 'pages' }) {
+export function HotspotModule({ layoutMode = 'cards', isPageActive = true }: ModuleRenderProps) {
   const { modules, expandedModule, setExpandedModule, updateModuleState, oneClickScanTrigger, stopScanTrigger } = useDashboard();
   const moduleState = modules.hotspot;
   const { showToast } = useToast();
@@ -651,6 +652,10 @@ export function HotspotModule({ layoutMode = 'cards' }: { layoutMode?: 'cards' |
 
   // 最大大小（用于计算占比条）
   const maxSize = scanResult?.entries[0]?.total_size || 0;
+
+  if (shouldSkipInactivePageRender(layoutMode, isPageActive) && !cleanupTarget && !selectedPath) {
+    return null;
+  }
 
   return (
     <ModuleCard

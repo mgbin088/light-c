@@ -22,12 +22,13 @@ import {
   type RegistryEntry,
   type CleanupLogEntryInput,
 } from '../../api/commands';
+import { shouldSkipInactivePageRender, type ModuleRenderProps } from './moduleProps';
 
 // ============================================================================
 // 主组件
 // ============================================================================
 
-export function RegistryModule({ layoutMode = 'cards' }: { layoutMode?: 'cards' | 'pages' }) {
+export function RegistryModule({ layoutMode = 'cards', isPageActive = true }: ModuleRenderProps) {
   const { modules, expandedModule, setExpandedModule, updateModuleState, triggerHealthRefresh, oneClickScanTrigger } = useDashboard();
   const moduleState = modules.registry;
 
@@ -168,6 +169,10 @@ export function RegistryModule({ layoutMode = 'cards' }: { layoutMode?: 'cards' 
   }, [scanResult, selectedEntries]);
 
   const isExpanded = expandedModule === 'registry';
+
+  if (shouldSkipInactivePageRender(layoutMode, isPageActive) && !isDeleting && !showDeleteConfirm) {
+    return null;
+  }
 
   return (
     <>

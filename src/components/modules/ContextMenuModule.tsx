@@ -30,6 +30,7 @@ import {
   type ContextMenuDeleteRequest,
   type CleanupLogEntryInput,
 } from '../../api/commands';
+import { shouldSkipInactivePageRender, type ModuleRenderProps } from './moduleProps';
 
 // ============================================================================
 // 工具函数
@@ -258,7 +259,7 @@ function EntryRow({ entry, isSelected, onToggle }: EntryRowProps) {
 // 主组件
 // ============================================================================
 
-export function ContextMenuModule({ layoutMode = 'cards' }: { layoutMode?: 'cards' | 'pages' }) {
+export function ContextMenuModule({ layoutMode = 'cards', isPageActive = true }: ModuleRenderProps) {
   const {
     modules,
     expandedModule,
@@ -500,6 +501,10 @@ export function ContextMenuModule({ layoutMode = 'cards' }: { layoutMode?: 'card
   const allFilteredSelected =
     selectableEntries.length > 0 &&
     selectableEntries.every((e) => selectedIds.has(e.id));
+
+  if (shouldSkipInactivePageRender(layoutMode, isPageActive) && !isDeleting && !showDeleteConfirm) {
+    return null;
+  }
 
   return (
     <>

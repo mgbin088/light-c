@@ -31,6 +31,7 @@ import {
   SystemSlimStatus
 } from '../../api/commands';
 import { formatSize } from '../../utils/format';
+import { shouldSkipInactivePageRender, type ModuleRenderProps } from './moduleProps';
 
 // ============================================================================
 // 配置
@@ -52,7 +53,7 @@ const itemColors: Record<string, { bg: string; text: string }> = {
 // 组件实现
 // ============================================================================
 
-export function SystemSlimModule({ layoutMode = 'cards' }: { layoutMode?: 'cards' | 'pages' }) {
+export function SystemSlimModule({ layoutMode = 'cards', isPageActive = true }: ModuleRenderProps) {
   const { modules, expandedModule, setExpandedModule, updateModuleState, triggerHealthRefresh, oneClickScanTrigger } = useDashboard();
   const moduleState = modules.system;
   const { showToast } = useToast();
@@ -154,6 +155,10 @@ export function SystemSlimModule({ layoutMode = 'cards' }: { layoutMode?: 'cards
   }, [status, loadStatus, triggerHealthRefresh, showToast]);
 
   const isExpanded = expandedModule === 'system';
+
+  if (shouldSkipInactivePageRender(layoutMode, isPageActive) && !actionLoading) {
+    return null;
+  }
 
   return (
     <ModuleCard

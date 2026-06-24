@@ -16,10 +16,10 @@ import { APP_MODULE_META, type AppModuleId, type LayoutMode } from './moduleMeta
 export interface AppModuleConfig {
   id: AppModuleId;
   label: string;
-  component: ComponentType<{ layoutMode?: LayoutMode }>;
+  component: ComponentType<{ layoutMode?: LayoutMode; isPageActive?: boolean }>;
 }
 
-const moduleComponents: Record<AppModuleId, ComponentType<{ layoutMode?: LayoutMode }>> = {
+const moduleComponents: Record<AppModuleId, ComponentType<{ layoutMode?: LayoutMode; isPageActive?: boolean }>> = {
   'junk-clean': JunkCleanModule,
   'big-files': BigFilesModule,
   'social-clean': SocialCleanModule,

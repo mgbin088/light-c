@@ -23,12 +23,13 @@ import {
   getSafetyCheckMessage,
 } from '../../api/commands';
 import { formatSize } from '../../utils/format';
+import { shouldSkipInactivePageRender, type ModuleRenderProps } from './moduleProps';
 
 // ============================================================================
 // 组件实现
 // ============================================================================
 
-export function LeftoversModule({ layoutMode = 'cards' }: { layoutMode?: 'cards' | 'pages' }) {
+export function LeftoversModule({ layoutMode = 'cards', isPageActive = true }: ModuleRenderProps) {
   const { modules, expandedModule, setExpandedModule, updateModuleState, triggerHealthRefresh, oneClickScanTrigger } = useDashboard();
   const moduleState = modules.leftovers;
 
@@ -403,6 +404,10 @@ export function LeftoversModule({ layoutMode = 'cards' }: { layoutMode?: 'cards'
   };
 
   const isExpanded = expandedModule === 'leftovers';
+
+  if (shouldSkipInactivePageRender(layoutMode, isPageActive) && !isDeletingAnimating) {
+    return null;
+  }
 
   return (
     <>

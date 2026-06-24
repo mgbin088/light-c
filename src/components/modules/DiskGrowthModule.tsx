@@ -29,6 +29,7 @@ import { ModuleCard } from '../ModuleCard';
 import { EmptyState } from '../EmptyState';
 import { useDashboard } from '../../contexts/DashboardContext';
 import { useSettings } from '../../contexts';
+import { shouldSkipInactivePageRender, type ModuleRenderProps } from './moduleProps';
 import {
   checkAdminPrivilege,
   cancelDiskGrowthScan,
@@ -719,7 +720,7 @@ function DiskGrowthDetailsModal({
   );
 }
 
-export function DiskGrowthModule({ layoutMode = 'cards' }: { layoutMode?: 'cards' | 'pages' }) {
+export function DiskGrowthModule({ layoutMode = 'cards', isPageActive = true }: ModuleRenderProps) {
   const { modules, expandedModule, setExpandedModule, updateModuleState, oneClickScanTrigger, stopScanTrigger } = useDashboard();
   const { settings } = useSettings();
   const moduleState = modules.diskGrowth;
@@ -905,6 +906,10 @@ export function DiskGrowthModule({ layoutMode = 'cards' }: { layoutMode?: 'cards
   const resultMode = growthReport?.entries.length ? 'change' : 'usage';
   const displayedEntries = showAll ? entries : entries.slice(0, 20);
   const hasMore = entries.length > displayedEntries.length;
+
+  if (shouldSkipInactivePageRender(layoutMode, isPageActive) && !detailEntry) {
+    return null;
+  }
 
   return (
     <ModuleCard

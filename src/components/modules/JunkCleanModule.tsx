@@ -16,12 +16,13 @@ import { useDashboard } from '../../contexts/DashboardContext';
 import { scanJunkFiles, enhancedDeleteFiles, recordCleanupAction, type EnhancedDeleteResult, type CleanupLogEntryInput } from '../../api/commands';
 import { formatSize } from '../../utils/format';
 import type { ScanResult, FileInfo } from '../../types';
+import { shouldSkipInactivePageRender, type ModuleRenderProps } from './moduleProps';
 
 // ============================================================================
 // 组件实现
 // ============================================================================
 
-export function JunkCleanModule({ layoutMode = 'cards' }: { layoutMode?: 'cards' | 'pages' }) {
+export function JunkCleanModule({ layoutMode = 'cards', isPageActive = true }: ModuleRenderProps) {
   const { modules, expandedModule, setExpandedModule, updateModuleState, triggerHealthRefresh, oneClickScanTrigger } = useDashboard();
   const moduleState = modules.junk;
   const { showToast } = useToast();
@@ -248,6 +249,10 @@ export function JunkCleanModule({ layoutMode = 'cards' }: { layoutMode?: 'cards'
   }, [scanResult]);
 
   const isExpanded = expandedModule === 'junk';
+
+  if (shouldSkipInactivePageRender(layoutMode, isPageActive) && !isDeleting && !showDeleteConfirm) {
+    return null;
+  }
 
   return (
     <>
