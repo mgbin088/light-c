@@ -20,7 +20,7 @@ import {
 import { ModuleCard } from '../ModuleCard';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { EmptyState } from '../EmptyState';
-import { useDashboard } from '../../contexts/DashboardContext';
+import { useModuleDashboard } from '../../contexts/DashboardContext';
 import {
   scanContextMenu,
   deleteContextMenuEntries,
@@ -261,14 +261,12 @@ function EntryRow({ entry, isSelected, onToggle }: EntryRowProps) {
 
 export function ContextMenuModule({ layoutMode = 'cards', isPageActive = true }: ModuleRenderProps) {
   const {
-    modules,
+    moduleState,
     expandedModule,
     setExpandedModule,
     updateModuleState,
     oneClickScanTrigger,
-  } = useDashboard();
-
-  const moduleState = modules.contextMenu;
+  } = useModuleDashboard('contextMenu');
   const lastScanTriggerRef = useRef(0);
 
   // ── 本地状态 ──────────────────────────────────────────────────────────────

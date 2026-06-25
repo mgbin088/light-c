@@ -12,7 +12,7 @@ import { ModuleCard } from '../ModuleCard';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { EmptyState } from '../EmptyState';
 import { useToast } from '../Toast';
-import { useDashboard, useSettings } from '../../contexts';
+import { useModuleDashboard, useSettings } from '../../contexts';
 import { scanHotspot, cancelHotspotScan, openInFolder, cleanupDirectoryContents, type HotspotScanResult, type HotspotEntry, type HotspotScanProgress } from '../../api/commands';
 import { formatSize } from '../../utils/format';
 import { DrillDownModal } from './DrillDownModal';
@@ -408,8 +408,7 @@ function HotspotItem({ entry, rank, maxSize, isFullScan, onOpenFolder, onCleanup
 // ============================================================================
 
 export function HotspotModule({ layoutMode = 'cards', isPageActive = true }: ModuleRenderProps) {
-  const { modules, expandedModule, setExpandedModule, updateModuleState, oneClickScanTrigger, stopScanTrigger } = useDashboard();
-  const moduleState = modules.hotspot;
+  const { moduleState, expandedModule, setExpandedModule, updateModuleState, oneClickScanTrigger, stopScanTrigger } = useModuleDashboard('hotspot');
   const { showToast } = useToast();
   const { settings } = useSettings();
 

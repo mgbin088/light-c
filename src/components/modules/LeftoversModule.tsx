@@ -9,7 +9,7 @@ import { Package, Loader2, Trash2, FolderOpen, AlertTriangle, CheckCircle2, Smar
 import { ModuleCard } from '../ModuleCard';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { EmptyState } from '../EmptyState';
-import { useDashboard } from '../../contexts/DashboardContext';
+import { useModuleDashboard } from '../../contexts/DashboardContext';
 import {
   scanUninstallLeftovers,
   deleteLeftoverFolders,
@@ -30,8 +30,7 @@ import { shouldSkipInactivePageRender, type ModuleRenderProps } from './modulePr
 // ============================================================================
 
 export function LeftoversModule({ layoutMode = 'cards', isPageActive = true }: ModuleRenderProps) {
-  const { modules, expandedModule, setExpandedModule, updateModuleState, triggerHealthRefresh, oneClickScanTrigger } = useDashboard();
-  const moduleState = modules.leftovers;
+  const { moduleState, expandedModule, setExpandedModule, updateModuleState, triggerHealthRefresh, oneClickScanTrigger } = useModuleDashboard('leftovers');
 
   const lastScanTriggerRef = useRef(0);
 

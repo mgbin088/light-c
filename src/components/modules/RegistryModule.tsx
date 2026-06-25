@@ -12,7 +12,7 @@ import { Database, Loader2, Trash2, CheckCircle2, Shield } from 'lucide-react';
 import { ModuleCard } from '../ModuleCard';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { EmptyState } from '../EmptyState';
-import { useDashboard } from '../../contexts/DashboardContext';
+import { useModuleDashboard } from '../../contexts/DashboardContext';
 import {
   scanRegistryRedundancy,
   deleteRegistryEntries,
@@ -29,8 +29,7 @@ import { shouldSkipInactivePageRender, type ModuleRenderProps } from './modulePr
 // ============================================================================
 
 export function RegistryModule({ layoutMode = 'cards', isPageActive = true }: ModuleRenderProps) {
-  const { modules, expandedModule, setExpandedModule, updateModuleState, triggerHealthRefresh, oneClickScanTrigger } = useDashboard();
-  const moduleState = modules.registry;
+  const { moduleState, expandedModule, setExpandedModule, updateModuleState, triggerHealthRefresh, oneClickScanTrigger } = useModuleDashboard('registry');
 
   const lastScanTriggerRef = useRef(0);
 

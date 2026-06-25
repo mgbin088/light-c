@@ -19,7 +19,7 @@ import {
   AnchorNav,
   BackToTopButton,
 } from './components';
-import { DashboardProvider, useDashboard, FontSizeProvider, SettingsProvider, useSettings } from './contexts';
+import { DashboardProvider, useDashboardActions, FontSizeProvider, SettingsProvider, useSettings } from './contexts';
 import { APP_MODULES } from './config/modules';
 import './App.css';
 
@@ -49,7 +49,7 @@ function PageTransitionAccent({ active }: { active: boolean }) {
 // ============================================================================
 
 function DashboardContent() {
-  const { triggerOneClickScan } = useDashboard();
+  const { triggerOneClickScan } = useDashboardActions();
   const { settings } = useSettings();
 
   // 设置弹窗状态
@@ -61,6 +61,7 @@ function DashboardContent() {
   const isPageMode = settings.layoutMode === 'pages';
   const [visibleModuleId, setVisibleModuleId] = useState(settings.activeModuleId);
   const [transitionModuleId, setTransitionModuleId] = useState(settings.activeModuleId);
+  const [pageTransitionSequence, setPageTransitionSequence] = useState(0);
   const visibleModuleIdRef = useRef(settings.activeModuleId);
 
   // 一键扫描：通过触发器并发启动所有模块扫描
@@ -84,6 +85,8 @@ function DashboardContent() {
     // 切换前先回到顶部，防止从长页面切到短页面时继承旧 scrollTop，出现大段空白和多余滚动条。
     scrollContainerRef.current?.scrollTo({ top: 0, behavior: 'auto' });
     visibleModuleIdRef.current = settings.activeModuleId;
+    // 用序号切换两组等价 class，避免重新挂载模块也能稳定重播 CSS 入场动画。
+    setPageTransitionSequence((current) => current + 1);
     setTransitionModuleId(settings.activeModuleId);
     setVisibleModuleId(settings.activeModuleId);
   }, [isPageMode, settings.activeModuleId]);
@@ -128,6 +131,12 @@ function DashboardContent() {
               {APP_MODULES.map((moduleConfig) => {
                 const ModuleComponent = moduleConfig.component;
                 const isActivePage = visibleModuleId === moduleConfig.id;
+                const shouldPlayPageEnter = isPageMode && isActivePage && transitionModuleId === moduleConfig.id;
+                const pageEnterClass = shouldPlayPageEnter
+                  ? pageTransitionSequence % 2 === 0
+                    ? 'page-content-enter-even'
+                    : 'page-content-enter-odd'
+                  : '';
                 return (
                   <div
                     key={moduleConfig.id}
@@ -135,7 +144,7 @@ function DashboardContent() {
                     className={
                       isPageMode
                         ? isActivePage
-                          ? 'relative z-10 overflow-visible'
+                          ? `relative z-10 overflow-visible ${pageEnterClass}`
                           : 'hidden'
                         : 'relative'
                     }

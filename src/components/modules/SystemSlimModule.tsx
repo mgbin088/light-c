@@ -20,7 +20,7 @@ import { listen } from '@tauri-apps/api/event';
 import { ModuleCard } from '../ModuleCard';
 import { EmptyState } from '../EmptyState';
 import { useToast } from '../Toast';
-import { useDashboard } from '../../contexts/DashboardContext';
+import { useModuleDashboard } from '../../contexts/DashboardContext';
 import {
   getSystemSlimStatus,
   disableHibernation,
@@ -54,8 +54,7 @@ const itemColors: Record<string, { bg: string; text: string }> = {
 // ============================================================================
 
 export function SystemSlimModule({ layoutMode = 'cards', isPageActive = true }: ModuleRenderProps) {
-  const { modules, expandedModule, setExpandedModule, updateModuleState, triggerHealthRefresh, oneClickScanTrigger } = useDashboard();
-  const moduleState = modules.system;
+  const { moduleState, expandedModule, setExpandedModule, updateModuleState, triggerHealthRefresh, oneClickScanTrigger } = useModuleDashboard('system');
   const { showToast } = useToast();
 
   // 用于跟踪是否已处理过当前的一键扫描触发

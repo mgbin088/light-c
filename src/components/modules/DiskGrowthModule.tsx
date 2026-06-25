@@ -27,7 +27,7 @@ import {
 } from 'lucide-react';
 import { ModuleCard } from '../ModuleCard';
 import { EmptyState } from '../EmptyState';
-import { useDashboard } from '../../contexts/DashboardContext';
+import { useModuleDashboard } from '../../contexts/DashboardContext';
 import { useSettings } from '../../contexts';
 import { shouldSkipInactivePageRender, type ModuleRenderProps } from './moduleProps';
 import {
@@ -721,9 +721,8 @@ function DiskGrowthDetailsModal({
 }
 
 export function DiskGrowthModule({ layoutMode = 'cards', isPageActive = true }: ModuleRenderProps) {
-  const { modules, expandedModule, setExpandedModule, updateModuleState, oneClickScanTrigger, stopScanTrigger } = useDashboard();
+  const { moduleState, expandedModule, setExpandedModule, updateModuleState, oneClickScanTrigger, stopScanTrigger } = useModuleDashboard('diskGrowth');
   const { settings } = useSettings();
-  const moduleState = modules.diskGrowth;
   const lastScanTriggerRef = useRef(0);
   const scanningRef = useRef(false);
   const cancelRequestedRef = useRef(false);
