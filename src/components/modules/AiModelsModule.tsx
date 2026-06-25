@@ -5,10 +5,8 @@ import {
   FolderOpen,
   Gauge,
   Loader2,
-  // Plus,
   Search,
   Sparkles,
-  X,
 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { listen } from '@tauri-apps/api/event';
@@ -22,7 +20,6 @@ import { useModuleDashboard } from '../../contexts/DashboardContext';
 import { shouldSkipInactivePageRender, type ModuleRenderProps } from './moduleProps';
 import {
   openInFolder,
-  pickFolderDialog,
   scanAiModelAssets,
   type AiAssetSource,
   type AiModelItem,
@@ -31,7 +28,6 @@ import {
 } from '../../api/commands';
 import { formatSize } from '../../utils/format';
 
-const CUSTOM_PATHS_STORAGE_KEY = 'lightc.aiModels.customPaths';
 const DEEP_DISCOVERY_STORAGE_KEY = 'lightc.aiModels.deepDiscovery';
 const LARGE_MODEL_THRESHOLD = 20 * 1024 * 1024 * 1024;
 
@@ -55,7 +51,6 @@ export function AiModelsModule({ layoutMode = 'cards', isPageActive = true }: Mo
   const lastScanTriggerRef = useRef(0);
 
   const [scanResult, setScanResult] = useState<AiModelScanResult | null>(null);
-  const [customPaths, setCustomPaths] = useState<string[]>(() => loadCustomPaths());
   const [enableDeepDiscovery, setEnableDeepDiscovery] = useState(() => loadDeepDiscovery());
   const [viewMode, setViewMode] = useState<AiModelViewMode>('overview');
   const [platformFilter, setPlatformFilter] = useState('all');
@@ -77,10 +72,6 @@ export function AiModelsModule({ layoutMode = 'cards', isPageActive = true }: Mo
   );
 
   useEffect(() => {
-    localStorage.setItem(CUSTOM_PATHS_STORAGE_KEY, JSON.stringify(customPaths));
-  }, [customPaths]);
-
-  useEffect(() => {
     // 深度发现会触发全盘 MFT 兜底，记住用户选择可以避免每次进入模块都反复确认。
     localStorage.setItem(DEEP_DISCOVERY_STORAGE_KEY, JSON.stringify(enableDeepDiscovery));
   }, [enableDeepDiscovery]);
@@ -94,7 +85,7 @@ export function AiModelsModule({ layoutMode = 'cards', isPageActive = true }: Mo
     setExpandedModule('aiModels');
 
     try {
-      const result = await scanAiModelAssets(customPaths, enableDeepDiscovery);
+      const result = await scanAiModelAssets(enableDeepDiscovery);
       setScanResult(result);
       setPlatformFilter('all');
       setTypeFilter('all');
@@ -109,7 +100,7 @@ export function AiModelsModule({ layoutMode = 'cards', isPageActive = true }: Mo
         showToast({
           type: 'info',
           title: '未发现 AI 资产',
-          description: '可添加 Ollama、LM Studio、ComfyUI 或模型目录后重新分析。',
+          description: '可开启深度发现，扫描本地 NTFS 盘中的大模型特征文件。',
         });
       }
     } catch (error) {
@@ -118,7 +109,7 @@ export function AiModelsModule({ layoutMode = 'cards', isPageActive = true }: Mo
     } finally {
       scanningRef.current = false;
     }
-  }, [customPaths, enableDeepDiscovery, setExpandedModule, showToast, updateModuleState]);
+  }, [enableDeepDiscovery, setExpandedModule, showToast, updateModuleState]);
 
   useEffect(() => {
     if (oneClickScanTrigger > 0 && oneClickScanTrigger !== lastScanTriggerRef.current) {
@@ -147,27 +138,6 @@ export function AiModelsModule({ layoutMode = 'cards', isPageActive = true }: Mo
       cancelled = true;
       if (unlisten) unlisten();
     };
-  }, []);
-
-  // @ts-ignore
-  const handleAddCustomPath = useCallback(async () => {
-    try {
-      const selectedPath = await pickFolderDialog();
-      if (!selectedPath) return;
-
-      setCustomPaths(prev => {
-        if (prev.some(path => path.toLowerCase() === selectedPath.toLowerCase())) {
-          return prev;
-        }
-        return [...prev, selectedPath];
-      });
-    } catch (error) {
-      showToast({ type: 'error', title: '添加目录失败', description: String(error) });
-    }
-  }, [showToast]);
-
-  const handleRemoveCustomPath = useCallback((pathToRemove: string) => {
-    setCustomPaths(prev => prev.filter(path => path !== pathToRemove));
   }, []);
 
   const handleSearchModel = useCallback(async (modelName: string) => {
@@ -214,29 +184,15 @@ export function AiModelsModule({ layoutMode = 'cards', isPageActive = true }: Mo
             disabled={isScanning}
             onChange={setEnableDeepDiscovery}
           />
-          {/* <button
-            onClick={(event) => {
-              event.stopPropagation();
-              handleAddCustomPath();
-            }}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-[var(--bg-hover)] text-[var(--fg-secondary)] hover:text-[var(--brand-green)] transition"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            添加目录
-          </button> */}
         </div>
       }
     >
       <div className="p-5 space-y-5">
-        {customPaths.length > 0 && (
-          <CustomPathList paths={customPaths} onRemove={handleRemoveCustomPath} />
-        )}
-
         {moduleState.status === 'idle' && !scanResult && (
           <EmptyState
             icon={BrainCircuit}
             title="尚未分析 AI 资产"
-            description="点击开始分析，快速检测 Ollama、LM Studio、ComfyUI、HuggingFace 和自定义模型目录。"
+            description="点击开始分析，快速检测 Ollama、LM Studio、ComfyUI、HuggingFace；找不到模型时再开启深度发现。"
             action={
               <button
                 onClick={handleScan}
@@ -408,7 +364,7 @@ function HeroOverview({
               )}
             </div>
             <p className="mt-1 text-sm font-semibold text-[var(--brand-green)]">
-              {largestModel ? `${formatSize(largestModel.size)} · ${largestModel.sourceName}` : '添加目录后重新分析'}
+              {largestModel ? `${formatSize(largestModel.size)} · ${largestModel.sourceName}` : '开启深度发现后重新分析'}
             </p>
             {largestModel && (
               <p className="mt-1 truncate text-xs text-[var(--text-muted)]" title={largestModel.path}>
@@ -738,21 +694,6 @@ function ModelTable({
   );
 }
 
-function CustomPathList({ paths, onRemove }: { paths: string[]; onRemove: (path: string) => void }) {
-  return (
-    <div className="flex flex-wrap gap-2">
-      {paths.map(path => (
-        <span key={path} className="inline-flex max-w-full items-center gap-2 rounded-full border border-[var(--border-color)] bg-[var(--bg-main)] px-3 py-1.5 text-xs text-[var(--text-muted)]">
-          <span className="truncate">{path}</span>
-          <button onClick={() => onRemove(path)} className="shrink-0 hover:text-rose-500 transition" title="移除目录">
-            <X className="h-3.5 w-3.5" />
-          </button>
-        </span>
-      ))}
-    </div>
-  );
-}
-
 function IconButton({ title, icon, onClick }: { title: string; icon: ReactNode; onClick: () => void }) {
   return (
     <button
@@ -822,7 +763,7 @@ function getModelType(model: AiModelItem): string {
   if (typeLabel) return typeLabel;
 
   const extension = model.path.split('.').pop()?.trim().toLowerCase();
-  // 自定义目录或 MFT 兜底可能没有平台类型标签，此时扩展名比“未知”更利于筛选和统计。
+  // MFT 兜底可能没有平台类型标签，此时扩展名比“未知”更利于筛选和统计。
   return extension ? `.${extension}` : '未知类型';
 }
 
@@ -848,20 +789,6 @@ function formatDuration(durationMs: number): string {
   }
 
   return `${(durationMs / 1000).toFixed(1)}s`;
-}
-
-function loadCustomPaths(): string[] {
-  try {
-    const rawValue = localStorage.getItem(CUSTOM_PATHS_STORAGE_KEY);
-    if (!rawValue) return [];
-    const parsedValue = JSON.parse(rawValue);
-
-    // 本地存储属于外部输入，读取时校验数组元素，避免脏数据让模块初始化失败。
-    if (!Array.isArray(parsedValue)) return [];
-    return parsedValue.filter((path): path is string => typeof path === 'string' && path.trim().length > 0);
-  } catch {
-    return [];
-  }
 }
 
 function loadDeepDiscovery(): boolean {

@@ -5,13 +5,11 @@ use super::{
 use crate::ai_models::types::ModelItem;
 use std::path::{Path, PathBuf};
 
-pub struct HuggingFaceDetector {
-    custom_paths: Vec<PathBuf>,
-}
+pub struct HuggingFaceDetector;
 
 impl HuggingFaceDetector {
-    pub fn new(custom_paths: Vec<PathBuf>) -> Self {
-        Self { custom_paths }
+    pub fn new() -> Self {
+        Self
     }
 }
 
@@ -28,12 +26,6 @@ impl ModelDetector for HuggingFaceDetector {
             candidate_roots.push(home_dir.join(".cache").join("huggingface"));
         }
 
-        for custom_path in &self.custom_paths {
-            if looks_like_huggingface_root(custom_path) {
-                candidate_roots.push(custom_path.clone());
-            }
-        }
-
         let mut models = Vec::new();
         let mut source_path = None;
         for root in unique_existing_paths(candidate_roots) {
@@ -46,16 +38,6 @@ impl ModelDetector for HuggingFaceDetector {
             warnings: Vec::new(),
         }
     }
-}
-
-fn looks_like_huggingface_root(path: &Path) -> bool {
-    path.join("hub").is_dir()
-        || path.components().any(|component| {
-            component
-                .as_os_str()
-                .to_string_lossy()
-                .eq_ignore_ascii_case("huggingface")
-        })
 }
 
 fn collect_huggingface_models(root: &Path) -> Vec<ModelItem> {

@@ -970,10 +970,10 @@ function GuideSettings() {
               AI 模型空间
             </p>
             <p className="text-xs text-[var(--text-muted)] leading-relaxed pl-6 mt-2">
-              自动分析 Ollama、LM Studio、ComfyUI、HuggingFace 和自定义目录中的模型资产，优先读取平台配置和标准目录，展示总占用、最大模型、平台占比和类型分布。
+              自动分析 Ollama、LM Studio、ComfyUI、HuggingFace 和深度发现来源中的模型资产，优先读取平台配置和标准目录，展示总占用、最大模型、平台占比和类型分布。
             </p>
             <p className="text-xs text-[var(--text-muted)] leading-relaxed pl-6 mt-2">
-              默认不会全盘扫描；开启<span className="text-[var(--brand-green)] font-medium">深度发现</span>后才会用 MFT 按模型文件特征补漏。该模块只做分析和定位，不提供删除模型操作。
+              默认不会全盘扫描；绿色版 llama.cpp、Pinokio 或自建目录可开启<span className="text-[var(--brand-green)] font-medium">深度发现</span>，用 MFT 按模型文件特征补漏。该模块只做分析和定位，不提供删除模型操作。
             </p>
           </div>
         </div>

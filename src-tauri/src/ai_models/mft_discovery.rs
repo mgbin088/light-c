@@ -13,12 +13,6 @@ pub struct CoveredRoot {
     pub path: PathBuf,
 }
 
-#[derive(Debug, Clone)]
-struct MftModelCandidate {
-    mft_id: u64,
-    size: u64,
-}
-
 pub fn discover_models_via_mft<F>(
     covered_roots: &[CoveredRoot],
     scan_started_at: &Instant,
@@ -114,7 +108,7 @@ where
         "mft_filter",
         &format!("正在筛选 {} 盘大模型候选", drive_letter),
     );
-    let candidate_ids = entries
+    let candidate_min_sizes = entries
         .iter()
         .filter(|entry| !entry.is_dir)
         .filter_map(|entry| {
@@ -129,37 +123,7 @@ where
         phase_started_at,
     );
 
-    if candidate_ids.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    phase_started_at = Instant::now();
-    emit_mft_progress(
-        progress,
-        scan_started_at,
-        &phase_started_at,
-        "mft_metadata",
-        &format!("正在读取 {} 盘候选文件大小", drive_letter),
-    );
-    let reader = mft_core::NtfsFileMetadataReader::open(drive_letter)?;
-    let wanted_ids = candidate_ids.keys().copied().collect::<HashSet<_>>();
-    let metadata_map = reader.read_file_metadata_map(&wanted_ids, &|_| true)?;
-
-    let retained_ids = metadata_map
-        .iter()
-        .filter_map(|(mft_id, metadata)| {
-            let min_size = *candidate_ids.get(mft_id)?;
-            (metadata.size >= min_size).then_some(*mft_id)
-        })
-        .collect::<HashSet<_>>();
-    finish_mft_phase(
-        phase_durations,
-        "mft_metadata",
-        &format!("{} 盘大小读取", drive_letter),
-        phase_started_at,
-    );
-
-    if retained_ids.is_empty() {
+    if candidate_min_sizes.is_empty() {
         return Ok(Vec::new());
     }
 
@@ -171,23 +135,46 @@ where
         "mft_paths",
         &format!("正在重建 {} 盘模型路径", drive_letter),
     );
-    let paths = mft_core::rebuild_paths_for_ids(&entries, drive_letter, &retained_ids);
+    let candidate_ids = candidate_min_sizes.keys().copied().collect::<HashSet<_>>();
+    let paths = mft_core::rebuild_paths_for_ids(&entries, drive_letter, &candidate_ids);
+    finish_mft_phase(
+        phase_durations,
+        "mft_paths",
+        &format!("{} 盘路径重建", drive_letter),
+        phase_started_at,
+    );
+
+    if paths.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    phase_started_at = Instant::now();
+    emit_mft_progress(
+        progress,
+        scan_started_at,
+        &phase_started_at,
+        "mft_metadata",
+        &format!("正在校验 {} 盘候选文件大小", drive_letter),
+    );
     let mut models = Vec::new();
 
-    for MftModelCandidate { mft_id, size } in retained_ids.iter().filter_map(|mft_id| {
-        metadata_map.get(mft_id).map(|metadata| MftModelCandidate {
-            mft_id: *mft_id,
-            size: metadata.size,
-        })
-    }) {
+    for (mft_id, min_size) in candidate_min_sizes {
         let Some(path) = paths.get(&mft_id).map(PathBuf::from) else {
             continue;
         };
+
         if should_skip_path(&path) {
             continue;
         }
 
         if is_covered_by_config_layer(&path, covered_roots) {
+            continue;
+        }
+
+        let Ok(metadata) = path.metadata() else {
+            continue;
+        };
+        if !metadata.is_file() || metadata.len() < min_size {
             continue;
         }
 
@@ -198,12 +185,20 @@ where
             .unwrap_or("未知模型")
             .to_string();
 
-        models.push((source_name, ModelItem { name, size, path }));
+        // MFT 负责快速定位候选，大小读取回到标准 metadata，避免少量文件因 NTFS 记录解析差异在进入路径层前被误丢。
+        models.push((
+            source_name,
+            ModelItem {
+                name,
+                size: metadata.len(),
+                path,
+            },
+        ));
     }
     finish_mft_phase(
         phase_durations,
-        "mft_paths",
-        &format!("{} 盘路径重建", drive_letter),
+        "mft_metadata",
+        &format!("{} 盘候选校验", drive_letter),
         phase_started_at,
     );
 
@@ -283,6 +278,10 @@ fn infer_source_name(path: &Path, covered_roots: &[CoveredRoot]) -> String {
         return "Ollama".to_string();
     }
 
+    if lower_path.contains("\\llama.cpp\\") || lower_path.contains("\\llama\\models\\") {
+        return "llama.cpp".to_string();
+    }
+
     "未知来源".to_string()
 }
 
@@ -330,4 +329,19 @@ fn local_drive_letters() -> Vec<char> {
     ('A'..='Z')
         .filter(|drive_letter| PathBuf::from(format!("{}:\\", drive_letter)).is_dir())
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn infers_llama_cpp_for_portable_gguf_models() {
+        let source_name = infer_source_name(
+            Path::new(r"D:\ai\llama\models\Qwythos-9B-Claude-Mythos.gguf"),
+            &[],
+        );
+
+        assert_eq!(source_name, "llama.cpp");
+    }
 }

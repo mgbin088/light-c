@@ -1184,7 +1184,7 @@ export interface AiModelItem {
   path: string;
 }
 
-/** 按平台或自定义目录聚合后的 AI资产来源 */
+/** 按平台或深度发现来源聚合后的 AI资产来源 */
 export interface AiAssetSource {
   name: string;
   path: string;
@@ -1221,11 +1221,11 @@ export interface AiModelScanProgress {
 }
 
 /**
- * 快速扫描已知 AI 平台目录和用户自定义目录。
+ * 快速扫描已知 AI 平台目录。
  * 深度发现由用户显式开启，后端才会追加 MFT 兜底扫描，避免默认行为带来全盘 IO 压力。
  */
-export async function scanAiModelAssets(customPaths: string[], enableDeepDiscovery: boolean): Promise<AiModelScanResult> {
-  return invoke<AiModelScanResult>('scan_ai_model_assets', { customPaths, enableDeepDiscovery });
+export async function scanAiModelAssets(enableDeepDiscovery: boolean): Promise<AiModelScanResult> {
+  return invoke<AiModelScanResult>('scan_ai_model_assets', { enableDeepDiscovery });
 }
 
 // ============================================================================

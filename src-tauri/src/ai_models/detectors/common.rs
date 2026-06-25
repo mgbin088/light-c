@@ -1,5 +1,5 @@
 use crate::ai_models::model_file_rules::{
-    is_custom_directory_model_file, is_model_package_directory, is_supported_model_extension,
+    is_model_package_directory, is_supported_model_extension,
 };
 use crate::ai_models::types::{AssetSource, ModelItem};
 use std::collections::HashSet;
@@ -57,7 +57,7 @@ pub fn is_model_extension(path: &Path) -> bool {
     is_supported_model_extension(path)
 }
 
-pub fn collect_model_files(root: &Path, custom_mode: bool) -> Vec<ModelItem> {
+pub fn collect_model_files(root: &Path) -> Vec<ModelItem> {
     let mut models: Vec<ModelItem> = WalkDir::new(root)
         .follow_links(false)
         .into_iter()
@@ -90,10 +90,6 @@ pub fn collect_model_files(root: &Path, custom_mode: bool) -> Vec<ModelItem> {
             }
 
             let size = file_size(path)?;
-            // 自定义目录没有平台结构兜底，必须使用更保守的统一规则，避免 .bin/.pt 这类扩展造成大量误判。
-            if custom_mode && !is_custom_directory_model_file(path, size) {
-                return None;
-            }
 
             Some(ModelItem {
                 name: path

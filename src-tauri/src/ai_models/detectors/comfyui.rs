@@ -22,13 +22,11 @@ const COMFYUI_MODEL_DIRS: [&str; 12] = [
     "photomaker",
 ];
 
-pub struct ComfyUiDetector {
-    custom_paths: Vec<PathBuf>,
-}
+pub struct ComfyUiDetector;
 
 impl ComfyUiDetector {
-    pub fn new(custom_paths: Vec<PathBuf>) -> Self {
-        Self { custom_paths }
+    pub fn new() -> Self {
+        Self
     }
 }
 
@@ -63,15 +61,6 @@ impl ModelDetector for ComfyUiDetector {
             install_roots.push(install_root);
         }
 
-        for custom_path in &self.custom_paths {
-            if let Some(install_root) = find_comfyui_install_root(custom_path) {
-                install_roots.push(install_root);
-            }
-            if let Some(models_path) = resolve_comfyui_models_path(custom_path) {
-                candidate_roots.push(models_path);
-            }
-        }
-
         for install_root in unique_existing_paths(install_roots) {
             candidate_roots.extend(read_extra_model_paths(&install_root));
         }
@@ -90,25 +79,6 @@ impl ModelDetector for ComfyUiDetector {
     }
 }
 
-fn resolve_comfyui_models_path(path: &Path) -> Option<PathBuf> {
-    if is_comfyui_models_dir(path) {
-        return Some(path.to_path_buf());
-    }
-
-    let nested_models_path = path.join("models");
-    if is_comfyui_models_dir(&nested_models_path) {
-        return Some(nested_models_path);
-    }
-
-    None
-}
-
-fn is_comfyui_models_dir(path: &Path) -> bool {
-    COMFYUI_MODEL_DIRS
-        .iter()
-        .any(|directory_name| path.join(directory_name).is_dir())
-}
-
 fn collect_comfyui_models(models_root: &Path) -> Vec<ModelItem> {
     let mut models = Vec::new();
 
@@ -118,7 +88,7 @@ fn collect_comfyui_models(models_root: &Path) -> Vec<ModelItem> {
             continue;
         }
 
-        let mut typed_models = collect_model_files(&model_type_dir, false);
+        let mut typed_models = collect_model_files(&model_type_dir);
         for model in &mut typed_models {
             // ComfyUI 的子目录本身就是资产类型，放进名称里能降低用户理解成本。
             model.name = format!("{} / {}", directory_name, model.name);
@@ -127,22 +97,6 @@ fn collect_comfyui_models(models_root: &Path) -> Vec<ModelItem> {
     }
 
     models
-}
-
-fn find_comfyui_install_root(path: &Path) -> Option<PathBuf> {
-    let mut current_path = Some(path);
-
-    // 用户常选 models 或 models/checkpoints，向上少量回溯即可定位 ComfyUI 根目录，不做全盘搜索。
-    for _ in 0..=3 {
-        let candidate = current_path?;
-        if candidate.join("extra_model_paths.yaml").is_file() || candidate.join("main.py").is_file()
-        {
-            return Some(candidate.to_path_buf());
-        }
-        current_path = candidate.parent();
-    }
-
-    None
 }
 
 fn read_extra_model_paths(install_root: &Path) -> Vec<PathBuf> {

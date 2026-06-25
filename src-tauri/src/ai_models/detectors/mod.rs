@@ -1,12 +1,10 @@
 mod comfyui;
 mod common;
-mod custom;
 mod huggingface;
 mod lm_studio;
 mod ollama;
 
 use crate::ai_models::types::AssetSource;
-use std::path::PathBuf;
 
 pub trait ModelDetector: Send + Sync {
     fn detect(&self) -> DetectorOutput;
@@ -18,13 +16,12 @@ pub struct DetectorOutput {
     pub warnings: Vec<String>,
 }
 
-pub fn create_detectors(custom_paths: Vec<PathBuf>) -> Vec<Box<dyn ModelDetector>> {
+pub fn create_detectors() -> Vec<Box<dyn ModelDetector>> {
     vec![
-        Box::new(ollama::OllamaDetector::new(custom_paths.clone())),
-        Box::new(lm_studio::LmStudioDetector::new(custom_paths.clone())),
-        Box::new(comfyui::ComfyUiDetector::new(custom_paths.clone())),
-        Box::new(huggingface::HuggingFaceDetector::new(custom_paths.clone())),
-        Box::new(custom::CustomDirectoryDetector::new(custom_paths)),
+        Box::new(ollama::OllamaDetector::new()),
+        Box::new(lm_studio::LmStudioDetector::new()),
+        Box::new(comfyui::ComfyUiDetector::new()),
+        Box::new(huggingface::HuggingFaceDetector::new()),
     ]
 }
 

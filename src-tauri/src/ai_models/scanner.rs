@@ -10,7 +10,6 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 pub fn scan_ai_model_assets_with_progress<F>(
-    custom_paths: Vec<PathBuf>,
     enable_deep_discovery: bool,
     progress: &F,
 ) -> AiModelScanResult
@@ -29,7 +28,7 @@ where
         "正在读取 AI 平台配置和已知模型目录",
     );
 
-    let detectors = create_detectors(custom_paths);
+    let detectors = create_detectors();
 
     let outputs: Vec<_> = detectors
         .into_par_iter()
@@ -148,7 +147,7 @@ fn covered_roots_from_sources(sources: &[AssetSource]) -> Vec<CoveredRoot> {
 
     for source in sources
         .iter()
-        .filter(|source| source.name != "自定义目录" && source.name != "未知来源")
+        .filter(|source| source.name != "未知来源")
     {
         // 平台 Detector 可能来自多个根目录，MFT 兜底需要把已识别模型的父目录也纳入覆盖范围，避免同一路径二次计数。
         push_covered_root(

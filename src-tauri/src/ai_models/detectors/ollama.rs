@@ -6,13 +6,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
-pub struct OllamaDetector {
-    custom_paths: Vec<PathBuf>,
-}
+pub struct OllamaDetector;
 
 impl OllamaDetector {
-    pub fn new(custom_paths: Vec<PathBuf>) -> Self {
-        Self { custom_paths }
+    pub fn new() -> Self {
+        Self
     }
 }
 
@@ -27,12 +25,6 @@ impl ModelDetector for OllamaDetector {
 
         if let Some(home_dir) = user_home_dir() {
             candidate_roots.push(home_dir.join(".ollama").join("models"));
-        }
-
-        for custom_path in &self.custom_paths {
-            if looks_like_ollama_root(custom_path) {
-                candidate_roots.push(custom_path.clone());
-            }
         }
 
         let roots = unique_existing_paths(candidate_roots);
@@ -71,10 +63,6 @@ impl ModelDetector for OllamaDetector {
             warnings,
         }
     }
-}
-
-fn looks_like_ollama_root(path: &Path) -> bool {
-    path.join("manifests").is_dir() && path.join("blobs").is_dir()
 }
 
 fn read_ollama_models(
