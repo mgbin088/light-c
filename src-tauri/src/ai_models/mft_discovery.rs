@@ -282,7 +282,7 @@ fn infer_source_name(path: &Path, covered_roots: &[CoveredRoot]) -> String {
         return "llama.cpp".to_string();
     }
 
-    "未知来源".to_string()
+    "未归类".to_string()
 }
 
 fn path_starts_with(path: &Path, root: &Path) -> bool {
@@ -313,6 +313,10 @@ fn should_skip_path(path: &Path) -> bool {
         || lower_path.contains("\\.git\\")
         || lower_path.contains("\\$recycle.bin\\")
         || lower_path.contains("\\system volume information\\")
+        // TODO: 浏览器本地AI要排除吗？
+        // Chromium 系浏览器会把本地 AI/推理缓存放进用户数据目录，这些文件不是用户主动管理的模型资产，直接跳过更符合产品语义。
+        // || lower_path.contains("\\user data\\optguideondevicemodel\\")
+        // || lower_path.contains("\\user data\\provenancedata\\")
 }
 
 fn common_parent_path(models: &[ModelItem]) -> Option<PathBuf> {
@@ -343,5 +347,15 @@ mod tests {
         );
 
         assert_eq!(source_name, "llama.cpp");
+    }
+
+    #[test]
+    fn skips_browser_on_device_model_cache_paths() {
+        assert!(should_skip_path(Path::new(
+            r"C:\Users\chunyu\AppData\Local\Google\Chrome\User Data\OptGuideOnDeviceModel\2025.8.11.1\weights.bin"
+        )));
+        assert!(should_skip_path(Path::new(
+            r"C:\Users\chunyu\AppData\Local\Microsoft\Edge\User Data\ProvenanceData\2025.10.7.5\vti-b-p32-visual.quant.ort"
+        )));
     }
 }

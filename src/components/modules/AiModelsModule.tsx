@@ -487,18 +487,18 @@ function OverviewDashboard({
   models: FlattenedModel[];
 }) {
   const modelTypeStats = getModelTypeStats(models);
-  const unknownSource = scanResult.sources.find(source => source.name === '未知来源');
+  const uncategorizedSource = scanResult.sources.find(source => source.name === '未归类');
 
   return (
     <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
       <PlatformUsageChart sources={scanResult.sources} />
       <ModelTypeChart stats={modelTypeStats} />
 
-      {unknownSource && (
+      {uncategorizedSource && (
         <div className="xl:col-span-2 rounded-xl border border-amber-500/20 bg-amber-500/10 p-3">
-          <p className="text-xs font-semibold text-amber-700">发现未知来源模型</p>
+          <p className="text-xs font-semibold text-amber-700">发现未归类模型</p>
           <p className="mt-1 text-xs text-amber-700">
-            {unknownSource.model_count.toLocaleString()} 个模型 · {formatSize(unknownSource.total_size)}。这些文件未匹配到已知平台目录，建议在模型列表中筛选“未知来源”确认归属。
+            {uncategorizedSource.model_count.toLocaleString()} 个模型 · {formatSize(uncategorizedSource.total_size)}。这些文件未匹配到已知平台目录，建议在模型列表中筛选“未归类”确认归属。
           </p>
         </div>
       )}

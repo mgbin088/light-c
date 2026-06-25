@@ -147,7 +147,7 @@ fn covered_roots_from_sources(sources: &[AssetSource]) -> Vec<CoveredRoot> {
 
     for source in sources
         .iter()
-        .filter(|source| source.name != "未知来源")
+        .filter(|source| source.name != "未归类")
     {
         // 平台 Detector 可能来自多个根目录，MFT 兜底需要把已识别模型的父目录也纳入覆盖范围，避免同一路径二次计数。
         push_covered_root(
