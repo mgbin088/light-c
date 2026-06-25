@@ -125,8 +125,8 @@
 - **配置与结构优先**：HuggingFace 会优先读取 `HF_HOME`；ComfyUI 会识别 Python 版 `extra_model_paths.yaml`、桌面版 `%APPDATA%\ComfyUI\config.json` 的 `basePath`、`extra_models_config.yaml`、默认 `models` 目录和 `diffusion_models`、`text_encoders`、`controlnet` 等现代模型目录；LM Studio 仅识别明确的 `.lmstudio` 路径，避免把普通 `models` 目录误判为 LM Studio
 - **深度发现开关**：默认快速扫描只读取配置和平台目录；开启“深度发现”后才会追加 MFT 兜底扫描本地 NTFS 盘，按 `.safetensors`、`.gguf`、`.ggml`、`.ckpt`、`.onnx`、`.ort`、`.tflite`、`.pb`、`.h5`、`.hdf5`、`.keras`、`.mlmodel`、`.mlpackage`、`.engine`、`.plan`、`.trt`、`.mnn`、`.rknn`、`.mindir`、`.om`、`.pdmodel`、`.pdiparams`、`.caffemodel`、`.dlc`、`.hef`、`.xmodel`、`.bmodel`、`.pte`、`.task`、`.nemo`、`.bin`、`.pt`、`.pth` 等格式分层过滤大模型候选；`.bin/.pt/.pth` 等高误判扩展名必须达到更高体积阈值，并跳过已由配置层覆盖的路径
 - **使用方式**：点击“AI 模型空间”模块中的“开始分析”手动触发扫描；如果模型由绿色版 llama.cpp、Pinokio、AI Toolkit 或自建目录管理，不确定模型放在哪个盘时再开启“深度发现”
-- **结果展示**：提供总占用、最大模型、超过 20GB 的模型数量、概览图表、模型列表筛选、打开目录和一键 Bing 搜索模型能力；ComfyUI 的 `diffusion_models` 等类型会作为灰色标签展示，文件名保持主显示；同一路径命中多个来源时按平台优先级去重，避免重复计数
-- **视图收敛**：概览视图用平台占用饼图、模型类型柱状图和未知来源提示展示空间结构，图表支持 hover 高亮与轻量 tooltip；模型列表视图承载完整结果，并使用统一主题下拉框支持按平台、类型和排序方式筛选，避免多个视图重复堆列表
+- **结果展示**：提供总占用、最大模型、超过 20GB 的模型数量、概览图表、模型列表筛选、打开目录和一键 Bing 搜索模型能力；平台标签使用主色实心样式、类型标签使用描边样式，“未归类”用暖色提醒，长路径采用中间省略以尽量保留模型文件名；同一路径命中多个来源时按平台优先级去重，避免重复计数
+- **视图收敛**：概览视图用平台占用饼图、模型类型柱状图和未归类提示展示空间结构，图表支持 hover 高亮与轻量 tooltip；模型列表视图承载完整结果，并使用统一主题下拉框支持按平台、类型和排序方式筛选，避免多个视图重复堆列表
 - **阶段反馈**：深度发现期间通过 `ai-models:progress` 事件展示 MFT 枚举、候选筛选、大小读取、路径重建和结果汇总等阶段；扫描完成后在总览卡片的耗时入口 hover 展示各阶段耗时与总耗时，便于判断瓶颈且不干扰模型结果主信息
 - **变更点**：Rust `ai_models` 扫描模块新增配置优先 + MFT 兜底分层，`scan_ai_model_assets` Tauri 命令支持深度发现参数和阶段进度事件，MVP 仅做可视化分析与定位，不提供删除或自动清理
 

@@ -667,16 +667,12 @@ function ModelTable({
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <p className="truncate text-sm font-medium text-[var(--text-primary)]" title={model.name}>{displayName.title}</p>
-                    <span className="shrink-0 rounded-full bg-[var(--bg-hover)] px-2 py-0.5 text-[10px] font-medium text-[var(--text-muted)]">
-                      {model.sourceName}
-                    </span>
-                    {displayName.typeLabel && (
-                      <span className="shrink-0 rounded-full bg-[var(--bg-hover)] px-2 py-0.5 text-[10px] font-medium text-[var(--text-muted)]">
-                        {displayName.typeLabel}
-                      </span>
-                    )}
+                    <SourceTag sourceName={model.sourceName} />
+                    {displayName.typeLabel && <TypeTag label={displayName.typeLabel} />}
                   </div>
-                  <p className="mt-0.5 truncate text-xs text-[var(--text-muted)]" title={model.path}>{model.path}</p>
+                  <p className="mt-0.5 truncate text-xs text-[var(--text-muted)]" title={model.path}>
+                    {formatMiddleEllipsisPath(model.path)}
+                  </p>
                 </div>
               </div>
               <p className="w-24 shrink-0 text-right text-sm font-bold tabular-nums text-[var(--brand-green)]">
@@ -691,6 +687,30 @@ function ModelTable({
         })}
       </div>
     </div>
+  );
+}
+
+function SourceTag({ sourceName }: { sourceName: string }) {
+  const isUncategorized = sourceName === '未归类';
+
+  return (
+    <span
+      className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+        isUncategorized
+          ? 'border border-[color-mix(in_srgb,var(--color-warning)_45%,transparent)] bg-[color-mix(in_srgb,var(--color-warning)_12%,transparent)] text-[var(--color-warning)]'
+          : 'bg-[var(--brand-green)] text-white'
+      }`}
+    >
+      {sourceName}
+    </span>
+  );
+}
+
+function TypeTag({ label }: { label: string }) {
+  return (
+    <span className="shrink-0 rounded-full border border-[var(--border-color)] bg-transparent px-2 py-0.5 text-[10px] font-medium text-[var(--text-muted)]">
+      {label}
+    </span>
   );
 }
 
@@ -765,6 +785,27 @@ function getModelType(model: AiModelItem): string {
   const extension = model.path.split('.').pop()?.trim().toLowerCase();
   // MFT 兜底可能没有平台类型标签，此时扩展名比“未知”更利于筛选和统计。
   return extension ? `.${extension}` : '未知类型';
+}
+
+function formatMiddleEllipsisPath(path: string): string {
+  const normalizedPath = path.trim();
+  if (normalizedPath.length <= 86) {
+    return normalizedPath;
+  }
+
+  const separatorIndex = Math.max(normalizedPath.lastIndexOf('\\'), normalizedPath.lastIndexOf('/'));
+  if (separatorIndex <= 0) {
+    return `${normalizedPath.slice(0, 36)}...${normalizedPath.slice(-38)}`;
+  }
+
+  const fileName = normalizedPath.slice(separatorIndex + 1);
+  const parentPath = normalizedPath.slice(0, separatorIndex);
+  if (fileName.length >= 48) {
+    // 长模型文件名通常包含量化、精度和版本信息，保留结尾比单纯右截断更利于用户辨认。
+    return `${parentPath.slice(0, 34)}...\\${fileName.slice(0, 24)}...${fileName.slice(-22)}`;
+  }
+
+  return `${parentPath.slice(0, 48)}...\\${fileName}`;
 }
 
 function splitDisplayModelName(name: string): DisplayModelName {
