@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ArrowDown,
+  ArrowUp,
   BarChart3,
   BrainCircuit,
   FolderOpen,
@@ -7,6 +9,7 @@ import {
   Loader2,
   Search,
   Sparkles,
+  X,
 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { listen } from '@tauri-apps/api/event';
@@ -32,7 +35,7 @@ const DEEP_DISCOVERY_STORAGE_KEY = 'lightc.aiModels.deepDiscovery';
 const LARGE_MODEL_THRESHOLD = 20 * 1024 * 1024 * 1024;
 
 type AiModelViewMode = 'overview' | 'models';
-type AiModelSortMode = 'size-desc' | 'name-asc' | 'platform-asc';
+type AiModelSortMode = 'size-desc' | 'size-asc' | 'name-asc' | 'name-desc';
 
 interface FlattenedModel extends AiModelItem {
   sourceName: string;
@@ -56,6 +59,7 @@ export function AiModelsModule({ layoutMode = 'cards', isPageActive = true }: Mo
   const [platformFilter, setPlatformFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
   const [sortMode, setSortMode] = useState<AiModelSortMode>('size-desc');
+  const [modelKeyword, setModelKeyword] = useState('');
   const [scanProgress, setScanProgress] = useState<AiModelScanProgress | null>(null);
 
   const allModels = useMemo(() => flattenModels(scanResult), [scanResult]);
@@ -67,8 +71,8 @@ export function AiModelsModule({ layoutMode = 'cards', isPageActive = true }: Mo
   );
   const modelTypeOptions = useMemo(() => getModelTypeOptions(allModels), [allModels]);
   const filteredModels = useMemo(
-    () => filterAndSortModels(allModels, platformFilter, typeFilter, sortMode),
-    [allModels, platformFilter, typeFilter, sortMode]
+    () => filterAndSortModels(allModels, platformFilter, typeFilter, sortMode, modelKeyword),
+    [allModels, platformFilter, typeFilter, sortMode, modelKeyword]
   );
 
   useEffect(() => {
@@ -90,6 +94,7 @@ export function AiModelsModule({ layoutMode = 'cards', isPageActive = true }: Mo
       setPlatformFilter('all');
       setTypeFilter('all');
       setSortMode('size-desc');
+      setModelKeyword('');
       updateModuleState('aiModels', {
         status: 'done',
         fileCount: result.total_model_count,
@@ -144,7 +149,7 @@ export function AiModelsModule({ layoutMode = 'cards', isPageActive = true }: Mo
     try {
       const displayName = splitDisplayModelName(modelName);
       // 搜索使用用户能理解的模型文件名，避免把 ComfyUI 内部类型目录带进查询词降低结果相关性。
-      await openSearchUrl(`${displayName.title} AI model`);
+      await openSearchUrl(`${displayName.title} AI 模型`);
     } catch (error) {
       showToast({ type: 'error', title: '打开搜索失败', description: String(error) });
     }
@@ -163,7 +168,7 @@ export function AiModelsModule({ layoutMode = 'cards', isPageActive = true }: Mo
       forceExpanded={layoutMode === 'pages'}
       id="aiModels"
       title="AI 模型空间"
-      description="快速分析本机 AI 模型、LoRA、Embedding 和缓存占用"
+      description="快速分析本机 AI 模型占用"
       icon={<BrainCircuit className="w-6 h-6 text-[var(--brand-green)]" />}
       status={moduleState.status}
       fileCount={moduleState.fileCount}
@@ -253,15 +258,18 @@ export function AiModelsModule({ layoutMode = 'cards', isPageActive = true }: Mo
                   typeOptions={modelTypeOptions}
                   platformFilter={platformFilter}
                   typeFilter={typeFilter}
-                  sortMode={sortMode}
+                  modelKeyword={modelKeyword}
                   onPlatformChange={setPlatformFilter}
                   onTypeChange={setTypeFilter}
-                  onSortChange={setSortMode}
+                  onKeywordChange={setModelKeyword}
+                  onKeywordClear={() => setModelKeyword('')}
                 />
                 <ModelTable
                   title="模型列表"
                   models={filteredModels}
                   totalCount={allModels.length}
+                  sortMode={sortMode}
+                  onSortChange={setSortMode}
                   onOpenPath={openInFolder}
                   onSearchModel={handleSearchModel}
                 />
@@ -332,6 +340,7 @@ function HeroOverview({
   onSearchModel: (modelName: string) => Promise<void>;
 }) {
   const displayName = largestModel ? splitDisplayModelName(largestModel.name) : null;
+  const largestModelType = largestModel ? getModelType(largestModel) : null;
 
   return (
     <div className="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-card)] p-4">
@@ -356,9 +365,9 @@ function HeroOverview({
               <p className="min-w-0 truncate text-xl font-bold text-[var(--text-primary)]" title={largestModel?.path ?? largestModel?.name}>
                 {displayName?.title ?? '未发现模型'}
               </p>
-              {displayName?.typeLabel && (
+              {largestModelType && (
                 <span className="shrink-0 rounded-full bg-[var(--bg-hover)] px-2 py-0.5 text-[10px] font-medium text-[var(--text-muted)]">
-                  {displayName.typeLabel}
+                  {largestModelType}
                 </span>
               )}
             </div>
@@ -570,19 +579,21 @@ function ModelListFilters({
   typeOptions,
   platformFilter,
   typeFilter,
-  sortMode,
+  modelKeyword,
   onPlatformChange,
   onTypeChange,
-  onSortChange,
+  onKeywordChange,
+  onKeywordClear,
 }: {
   sources: AiAssetSource[];
   typeOptions: string[];
   platformFilter: string;
   typeFilter: string;
-  sortMode: AiModelSortMode;
+  modelKeyword: string;
   onPlatformChange: (value: string) => void;
   onTypeChange: (value: string) => void;
-  onSortChange: (value: AiModelSortMode) => void;
+  onKeywordChange: (value: string) => void;
+  onKeywordClear: () => void;
 }) {
   const platformOptions: SelectOption[] = [
     { value: 'all', label: '全部平台' },
@@ -592,12 +603,6 @@ function ModelListFilters({
     { value: 'all', label: '全部类型' },
     ...typeOptions.map(type => ({ value: type, label: type })),
   ];
-  const sortOptions: SelectOption<AiModelSortMode>[] = [
-    { value: 'size-desc', label: '按大小降序' },
-    { value: 'name-asc', label: '按名称升序' },
-    { value: 'platform-asc', label: '按平台升序' },
-  ];
-
   return (
     <div className="flex flex-wrap items-center gap-2 rounded-xl border border-[var(--border-color)] bg-[var(--bg-main)] p-3">
       <FilterField label="平台">
@@ -608,8 +613,27 @@ function ModelListFilters({
         <Select value={typeFilter} options={typeSelectOptions} onChange={onTypeChange} widthClass="w-36" size="sm" />
       </FilterField>
 
-      <FilterField label="排序">
-        <Select value={sortMode} options={sortOptions} onChange={onSortChange} widthClass="w-32" size="sm" />
+      <FilterField label="搜索" className="min-w-[280px] flex-1">
+        <div className="relative w-full min-w-[180px]">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--text-muted)]" />
+          <input
+            value={modelKeyword}
+            onChange={event => onKeywordChange(event.target.value)}
+            placeholder="搜索模型、路径或来源"
+            className="h-8 w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] pl-8 pr-8 text-xs text-[var(--text-primary)] outline-none transition placeholder:text-[var(--text-muted)] focus:border-[var(--brand-green)] focus:ring-2 focus:ring-[var(--brand-green)]/20"
+          />
+          {modelKeyword.trim().length > 0 && (
+            <button
+              type="button"
+              onClick={onKeywordClear}
+              className="absolute right-1.5 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded-md text-[var(--text-muted)] transition hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+              aria-label="清空模型搜索关键词"
+              title="清空搜索"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
       </FilterField>
     </div>
   );
@@ -618,13 +642,15 @@ function ModelListFilters({
 function FilterField({
   label,
   children,
+  className = '',
 }: {
   label: string;
   children: ReactNode;
+  className?: string;
 }) {
   return (
-    <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
-      <span>{label}</span>
+    <div className={`flex items-center gap-2 text-xs text-[var(--text-muted)] ${className}`}>
+      <span className="shrink-0">{label}</span>
       {children}
     </div>
   );
@@ -634,28 +660,52 @@ function ModelTable({
   title,
   models,
   totalCount,
+  sortMode,
   compact = false,
+  onSortChange,
   onOpenPath,
   onSearchModel,
 }: {
   title: string;
   models: FlattenedModel[];
   totalCount?: number;
+  sortMode: AiModelSortMode;
   compact?: boolean;
+  onSortChange: (value: AiModelSortMode) => void;
   onOpenPath: (path: string) => Promise<void>;
   onSearchModel: (modelName: string) => Promise<void>;
 }) {
   return (
     <div className="overflow-hidden rounded-2xl border border-[var(--border-color)] bg-[var(--bg-card)]">
-      <div className="flex items-center justify-between border-b border-[var(--border-color)] px-4 py-3">
-        <p className="text-sm font-semibold text-[var(--text-primary)]">{title}</p>
-        <p className="text-xs text-[var(--text-muted)]">
-          {models.length.toLocaleString()} / {(totalCount ?? models.length).toLocaleString()} 项
-        </p>
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border-color)] px-4 py-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <p className="text-sm font-semibold text-[var(--text-primary)]">{title}</p>
+          <p className="text-xs text-[var(--text-muted)]">
+            {models.length.toLocaleString()} / {(totalCount ?? models.length).toLocaleString()} 项
+          </p>
+        </div>
+
+        <div className="flex shrink-0 items-center gap-1">
+          <SortHeaderButton
+            label="名称"
+            activeAscMode="name-asc"
+            activeDescMode="name-desc"
+            sortMode={sortMode}
+            onSortChange={onSortChange}
+          />
+          <SortHeaderButton
+            label="大小"
+            activeAscMode="size-asc"
+            activeDescMode="size-desc"
+            sortMode={sortMode}
+            onSortChange={onSortChange}
+          />
+        </div>
       </div>
       <div className="divide-y divide-[var(--border-color)]">
         {models.map(model => {
           const displayName = splitDisplayModelName(model.name);
+          const modelType = getModelType(model);
 
           return (
             <div key={`${model.sourceName}-${model.path}-${model.name}`} className={`flex items-center gap-3 px-4 hover:bg-[var(--bg-hover)] transition ${compact ? 'py-2.5' : 'py-3'}`}>
@@ -667,7 +717,7 @@ function ModelTable({
                   <div className="flex items-center gap-2">
                     <p className="truncate text-sm font-medium text-[var(--text-primary)]" title={model.name}>{displayName.title}</p>
                     <SourceTag sourceName={model.sourceName} />
-                    {displayName.typeLabel && <TypeTag label={displayName.typeLabel} />}
+                    <TypeTag label={modelType} />
                   </div>
                   <p className="mt-0.5 truncate text-xs text-[var(--text-muted)]" title={model.path}>
                     {formatMiddleEllipsisPath(model.path)}
@@ -686,6 +736,41 @@ function ModelTable({
         })}
       </div>
     </div>
+  );
+}
+
+function SortHeaderButton({
+  label,
+  activeAscMode,
+  activeDescMode,
+  sortMode,
+  onSortChange,
+}: {
+  label: string;
+  activeAscMode: AiModelSortMode;
+  activeDescMode: AiModelSortMode;
+  sortMode: AiModelSortMode;
+  onSortChange: (value: AiModelSortMode) => void;
+}) {
+  const isActive = sortMode === activeAscMode || sortMode === activeDescMode;
+  const nextSortMode = sortMode === activeDescMode ? activeAscMode : activeDescMode;
+  const DirectionIcon = sortMode === activeAscMode ? ArrowUp : ArrowDown;
+
+  return (
+    <button
+      type="button"
+      onClick={() => onSortChange(nextSortMode)}
+      className={`flex h-7 items-center gap-1 rounded-lg border px-2 text-xs transition ${
+        isActive
+          ? 'border-[var(--brand-green)] bg-[var(--brand-green)]/10 text-[var(--brand-green)]'
+          : 'border-[var(--border-color)] text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]'
+      }`}
+      title={`按${label}${sortMode === activeDescMode ? '升序' : '降序'}排列`}
+    >
+      <span>按{label}</span>
+      {/* 只在当前排序列展示方向，避免两个按钮同时出现箭头造成误读。 */}
+      {isActive && <DirectionIcon className="h-3 w-3" />}
+    </button>
   );
 }
 
@@ -740,23 +825,47 @@ function filterAndSortModels(
   models: FlattenedModel[],
   platformFilter: string,
   typeFilter: string,
-  sortMode: AiModelSortMode
+  sortMode: AiModelSortMode,
+  modelKeyword: string
 ): FlattenedModel[] {
+  const normalizedKeyword = modelKeyword.trim().toLowerCase();
   const filteredModels = models.filter(model => {
     const modelType = getModelType(model);
     return (platformFilter === 'all' || model.sourceName === platformFilter)
-      && (typeFilter === 'all' || modelType === typeFilter);
+      && (typeFilter === 'all' || modelType === typeFilter)
+      && matchesModelKeyword(model, modelType, normalizedKeyword);
   });
 
   return [...filteredModels].sort((left, right) => {
     if (sortMode === 'name-asc') {
       return splitDisplayModelName(left.name).title.localeCompare(splitDisplayModelName(right.name).title);
     }
-    if (sortMode === 'platform-asc') {
-      return left.sourceName.localeCompare(right.sourceName) || right.size - left.size;
+    if (sortMode === 'name-desc') {
+      return splitDisplayModelName(right.name).title.localeCompare(splitDisplayModelName(left.name).title);
+    }
+    if (sortMode === 'size-asc') {
+      return left.size - right.size;
     }
     return right.size - left.size;
   });
+}
+
+function matchesModelKeyword(
+  model: FlattenedModel,
+  modelType: string,
+  normalizedKeyword: string
+): boolean {
+  if (!normalizedKeyword) return true;
+
+  const displayName = splitDisplayModelName(model.name);
+  // 搜索覆盖“可见模型名 + 原始名称 + 路径 + 来源 + 类型”，因为用户可能只记得模型片段，也可能按存储目录定位。
+  return [
+    displayName.title,
+    model.name,
+    model.path,
+    model.sourceName,
+    modelType,
+  ].some(searchText => searchText.toLowerCase().includes(normalizedKeyword));
 }
 
 function getModelTypeOptions(models: FlattenedModel[]): string[] {
@@ -778,12 +887,9 @@ function getModelTypeStats(models: FlattenedModel[]): Array<{ type: string; coun
 }
 
 function getModelType(model: AiModelItem): string {
-  const typeLabel = splitDisplayModelName(model.name).typeLabel;
-  if (typeLabel) return typeLabel;
-
   const extension = model.path.split('.').pop()?.trim().toLowerCase();
-  // MFT 兜底可能没有平台类型标签，此时扩展名比“未知”更利于筛选和统计。
-  return extension ? `.${extension}` : '未知类型';
+  // 类型统一使用文件扩展名，避免 ComfyUI 子目录名和其他平台扩展名混用导致语义不一致。
+  return extension ? `${extension}` : '未知类型';
 }
 
 function formatMiddleEllipsisPath(path: string): string {

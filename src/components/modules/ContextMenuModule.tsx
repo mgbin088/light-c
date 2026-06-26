@@ -281,7 +281,7 @@ export function ContextMenuModule({ layoutMode = 'cards', isPageActive = true }:
   /** 按 scope 分组折叠状态 */
   const [collapsedScopes, setCollapsedScopes] = useState<Set<string>>(new Set());
   /** 筛选：仅显示无效条目 */
-  const [showInvalidOnly, setShowInvalidOnly] = useState(false);
+  const [showInvalidOnly, setShowInvalidOnly] = useState(true);
 
   // ── 派生数据 ──────────────────────────────────────────────────────────────
 
