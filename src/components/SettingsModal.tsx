@@ -946,17 +946,12 @@ function GuideSettings() {
               卸载残留
             </p>
             <p className="text-xs text-[var(--text-muted)] leading-relaxed pl-6">
-              基于<span className="text-[var(--brand-green)] font-medium">置信度评分引擎</span>（卸载特征 + 保护信号），智能识别 AppData 和 ProgramData 中已卸载软件的残留文件夹。
-              系统会自动读取注册表构建已安装应用映射，结合<span className="text-[var(--brand-green)] font-medium">安装历史缓存</span>检测"曾经安装现已卸载"的残留。
+              基于<span className="text-[var(--brand-green)] font-medium">置信度评分引擎</span>识别 AppData、ProgramData 等位置中疑似已卸载软件留下的目录，
+              并结合注册表、安装历史和保护信号降低误判。
             </p>
             <p className="text-xs text-[var(--text-muted)] leading-relaxed pl-6 mt-1">
-              <span className="text-[var(--brand-green)] font-medium">双重删除模式：</span>
-              普通删除含可执行文件预检查（含 .exe/.dll/.sys 的文件夹自动跳过），
-              深度清理执行完整的<span className="text-[var(--color-warning)] font-medium">安全检查协议</span>（白名单 + 可执行文件扫描），发现风险项标记为人工审核。
-            </p>
-            <p className="text-xs text-[var(--text-muted)] leading-relaxed pl-6 mt-1">
-              <span className="text-[var(--color-danger)] font-medium">模拟器残留：</span>
-              自动检测雷电、蓝叠、夜神、MuMu、MEmu 等7款安卓模拟器的卸载残留和虚拟磁盘文件（.vmdk/.vdi/.vhd）。
+              <span className="text-[var(--color-warning)] font-medium">准确性提醒：</span>
+              卸载后的目录归属无法 100% 权威判断，LightC 只做事后推断；清理前请结合路径、大小和软件使用情况自行确认。
             </p>
           </div>
           <div>

@@ -549,7 +549,7 @@ function PlatformUsageChart({ sources }: { sources: AiAssetSource[] }) {
 }
 
 function ModelTypeChart({ stats }: { stats: Array<{ type: string; count: number; size: number }> }) {
-  const visibleStats = stats.slice(0, 8);
+  const visibleStats = getVisibleModelTypeStats(stats);
   const chartItems: ChartItem[] = visibleStats.map((item, index) => ({
     id: item.type,
     label: item.type,
@@ -567,11 +567,32 @@ function ModelTypeChart({ stats }: { stats: Array<{ type: string; count: number;
       </div>
 
       <div className="mt-4">
-        {/* 柱状图只展示前 8 类，避免模型类型过多时标签拥挤；完整明细仍由模型列表筛选承载。 */}
+        {/* 柱状图保留 8 个展示位，超出的类别汇总到“其他类型”，避免图表拥挤同时不丢总量。 */}
         <ColumnChart items={chartItems} emptyText="暂无类型分布数据" />
       </div>
     </div>
   );
+}
+
+function getVisibleModelTypeStats(
+  stats: Array<{ type: string; count: number; size: number }>
+): Array<{ type: string; count: number; size: number }> {
+  const visibleLimit = 8;
+  if (stats.length <= visibleLimit) return stats;
+
+  const primaryStats = stats.slice(0, visibleLimit - 1);
+  const otherStats = stats.slice(visibleLimit - 1);
+  const otherSummary = otherStats.reduce(
+    (summary, item) => ({
+      type: summary.type,
+      count: summary.count + item.count,
+      size: summary.size + item.size,
+    }),
+    { type: '其他类型', count: 0, size: 0 }
+  );
+
+  // 概览统计关注空间结构，长尾类别汇总展示比直接截断更符合“空间分析”的总量认知。
+  return [...primaryStats, otherSummary];
 }
 
 function ModelListFilters({
@@ -876,7 +897,7 @@ function getModelTypeStats(models: FlattenedModel[]): Array<{ type: string; coun
   const stats = new Map<string, { type: string; count: number; size: number }>();
 
   for (const model of models) {
-    const type = getModelType(model);
+    const type = getModelChartType(model);
     const current = stats.get(type) ?? { type, count: 0, size: 0 };
     current.count += 1;
     current.size += model.size;
@@ -884,6 +905,12 @@ function getModelTypeStats(models: FlattenedModel[]): Array<{ type: string; coun
   }
 
   return Array.from(stats.values()).sort((left, right) => right.size - left.size);
+}
+
+function getModelChartType(model: AiModelItem): string {
+  const categoryLabel = splitDisplayModelName(model.name).typeLabel;
+  // 概览图服务于空间结构理解：ComfyUI 等平台有明确模型类别时保留类别，否则用扩展名兜底。
+  return categoryLabel || getModelType(model);
 }
 
 function getModelType(model: AiModelItem): string {
