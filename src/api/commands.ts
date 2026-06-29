@@ -16,7 +16,12 @@ import type {
 } from '../types';
 
 export type DistributionChannel = 'installer' | 'portable';
-export type VerifyIntegrityStatus = 'verified' | 'failed' | 'network_error' | 'release_unavailable';
+export type VerifyIntegrityStatus =
+  | 'verified'
+  | 'failed'
+  | 'network_error'
+  | 'release_unavailable'
+  | 'signature_error';
 
 export interface VerifyIntegrityResult {
   verified: boolean;

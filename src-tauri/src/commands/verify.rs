@@ -20,6 +20,7 @@ pub enum VerifyIntegrityStatus {
     Failed,
     NetworkError,
     ReleaseUnavailable,
+    SignatureError,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -58,6 +59,13 @@ pub async fn verify_integrity() -> VerifyIntegrityResult {
         Err(VerifyError::InvalidSignature(message)) => build_result(
             false,
             VerifyIntegrityStatus::Failed,
+            current_version(),
+            current_channel_label(),
+            message,
+        ),
+        Err(VerifyError::SignatureFormat(message)) => build_result(
+            false,
+            VerifyIntegrityStatus::SignatureError,
             current_version(),
             current_channel_label(),
             message,
@@ -148,19 +156,43 @@ fn release_asset_url(app_version: &str, asset_name: &str) -> String {
 fn verify_exe_signature(exe_bytes: &[u8], signature_text: &str) -> Result<(), VerifyError> {
     let public_key_text = decode_base64_text(UPDATER_PUBLIC_KEY)
         .map_err(|message| VerifyError::Local(format!("官方公钥解析失败：{}", message)))?;
-    let signature_text = decode_base64_text(signature_text).map_err(|message| {
-        VerifyError::InvalidSignature(format!("签名文件解析失败：{}", message))
-    })?;
+    let signature_text = normalize_signature_text(signature_text)?;
     let public_key = PublicKey::decode(&public_key_text)
         .map_err(|error| VerifyError::Local(format!("官方公钥解析失败：{}", error)))?;
     let signature = Signature::decode(&signature_text)
-        .map_err(|error| VerifyError::InvalidSignature(format!("签名文件解析失败：{}", error)))?;
+        .map_err(|error| VerifyError::SignatureFormat(format!("签名文件格式异常：{}", error)))?;
 
     public_key
         .verify(exe_bytes, &signature, true)
         .map_err(|error| {
-            VerifyError::InvalidSignature(format!("文件已被篡改或不是官方原版：{}", error))
+            VerifyError::InvalidSignature(format!(
+                "签名与当前 LightC.exe 不一致，文件可能被修改或不是官方构建：{}",
+                error
+            ))
         })
+}
+
+fn normalize_signature_text(signature_text: &str) -> Result<String, VerifyError> {
+    let mut current = signature_text.trim().to_string();
+
+    for _ in 0..3 {
+        if current.starts_with("untrusted comment:") {
+            return Ok(current);
+        }
+
+        // 兼容历史 Release 中被多包了一层 base64 的签名资产；只在能解成 UTF-8 时继续向内展开。
+        current = decode_base64_text(&current).map_err(|message| {
+            VerifyError::SignatureFormat(format!("签名文件解析失败：{}", message))
+        })?;
+    }
+
+    if current.starts_with("untrusted comment:") {
+        Ok(current)
+    } else {
+        Err(VerifyError::SignatureFormat(
+            "签名文件不是 minisign 文本格式".to_string(),
+        ))
+    }
 }
 
 fn decode_base64_text(base64_text: &str) -> Result<String, String> {
@@ -225,9 +257,42 @@ impl DistributionChannel {
     }
 }
 
+#[derive(Debug)]
 enum VerifyError {
     Network(String),
     ReleaseUnavailable(String),
+    SignatureFormat(String),
     InvalidSignature(String),
     Local(String),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SAMPLE_MINISIGN_TEXT: &str = "untrusted comment: signature from tauri secret key\nRUQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\ntrusted comment: timestamp:1782718516\tfile:LightC.exe\nAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==\n";
+
+    #[test]
+    fn normalize_signature_text_accepts_raw_minisign_text() {
+        let normalized = normalize_signature_text(SAMPLE_MINISIGN_TEXT).unwrap();
+        assert!(normalized.starts_with("untrusted comment:"));
+    }
+
+    #[test]
+    fn normalize_signature_text_accepts_single_base64_signature() {
+        let encoded =
+            base64::engine::general_purpose::STANDARD.encode(SAMPLE_MINISIGN_TEXT.as_bytes());
+        let normalized = normalize_signature_text(&encoded).unwrap();
+        assert!(normalized.starts_with("untrusted comment:"));
+    }
+
+    #[test]
+    fn normalize_signature_text_accepts_legacy_double_base64_signature() {
+        let encoded_once =
+            base64::engine::general_purpose::STANDARD.encode(SAMPLE_MINISIGN_TEXT.as_bytes());
+        let encoded_twice =
+            base64::engine::general_purpose::STANDARD.encode(encoded_once.as_bytes());
+        let normalized = normalize_signature_text(&encoded_twice).unwrap();
+        assert!(normalized.starts_with("untrusted comment:"));
+    }
 }
