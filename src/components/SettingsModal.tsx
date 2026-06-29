@@ -1171,6 +1171,8 @@ function SecuritySettings() {
         showToast({ type: 'info', title: '无法连接 GitHub', description: '请检查网络后重试。' });
       } else if (result.status === 'release_unavailable') {
         showToast({ type: 'info', title: '签名资产未发布', description: '当前版本需要等 Release 完成后才能校验。' });
+      } else if (result.status === 'signature_error') {
+        showToast({ type: 'error', title: '签名资产异常', description: '官方签名文件格式异常，请等待作者修复发布资产。' });
       } else {
         showToast({ type: 'error', title: '校验未通过', description: '建议从官方渠道重新下载。' });
       }
@@ -1349,6 +1351,20 @@ function VerifyIntegrityResultCard({ result }: { result: VerifyIntegrityResult }
           <Info className="w-4 h-4 text-[var(--color-warning)] mt-0.5 shrink-0" />
           <div className="min-w-0">
             <p className="text-sm font-medium text-[var(--text-primary)]">当前版本暂未发布官方签名资产</p>
+            <p className="text-xs text-[var(--text-muted)] mt-1 break-all">{result.message}</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (result.status === 'signature_error') {
+    return (
+      <div className="rounded-xl border border-[var(--color-warning)]/20 bg-[var(--color-warning)]/10 p-3">
+        <div className="flex items-start gap-3">
+          <AlertTriangle className="w-4 h-4 text-[var(--color-warning)] mt-0.5 shrink-0" />
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-[var(--text-primary)]">官方签名资产格式异常</p>
             <p className="text-xs text-[var(--text-muted)] mt-1 break-all">{result.message}</p>
           </div>
         </div>

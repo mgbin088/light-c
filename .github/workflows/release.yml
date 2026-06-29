@@ -129,7 +129,13 @@ jobs:
           $GeneratedSigPath = "$PortableDir\LightC.exe.sig"
           if (Test-Path $GeneratedSigPath) {
             $SignatureText = Get-Content -Raw -Path $GeneratedSigPath
-            $SignatureBase64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($SignatureText))
+            if ($SignatureText.TrimStart().StartsWith("untrusted comment:")) {
+              # 原始 minisign 文本需要转成 Tauri updater 风格的 Public signature 字符串。
+              $SignatureBase64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($SignatureText))
+            } else {
+              # 有些 CLI 版本会直接写入 Public signature，直接复用可避免双重 base64。
+              $SignatureBase64 = $SignatureText.Trim()
+            }
           } else {
             # CLI 正常会生成 .sig 文件；这里兜底解析 stdout 中的 Public signature，避免把说明文字写进签名资产。
             $SignatureBase64 = ($SignatureOutput -split "`r?`n" | Where-Object { $_ -match '^[A-Za-z0-9+/=]+$' } | Select-Object -Last 1)
