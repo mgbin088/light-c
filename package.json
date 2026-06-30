@@ -1,8 +1,9 @@
 {
   "name": "light-c",
   "private": true,
-  "version": "2.10.2",
+  "version": "2.10.3",
   "type": "module",
+  "license": "SEE LICENSE IN LICENSE",
   "author": {
     "name": "Evan Lau",
     "email": "liucygm33@gmail.com",

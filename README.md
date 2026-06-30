@@ -13,7 +13,7 @@
   <img src="https://img.shields.io/badge/Tauri-2.x-orange?style=flat-square" alt="Tauri">
   <img src="https://img.shields.io/badge/React-19.x-61dafb?style=flat-square" alt="React">
   <img src="https://img.shields.io/badge/Rust-1.70+-dea584?style=flat-square" alt="Rust">
-  <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License">
+  <img src="https://img.shields.io/badge/license-Source%20Available-green?style=flat-square" alt="License">
 </p>
 
 
@@ -511,7 +511,26 @@ npm run tauri build
 
 ## 📄 许可证
 
-[MIT License](LICENSE)
+LightC 自 v2.10.3 起采用 [LightC Source Available License v1.0](LICENSE)。
+
+LightC 公开源码的目的，是让用户可以审计代码、确认软件行为透明可信，并让开发者能够阅读、学习、Fork、修改源码和向官方仓库提交 Pull Request。
+
+这不是 OSI 定义下的 Open Source License。该许可证允许：
+
+- 阅读、审计和学习源码
+- 为个人、教育、研究、安全审计或非商业开发目的复制、运行和修改源码
+- Fork 项目以准备改动或向官方仓库提交贡献
+- 向官方仓库提交 Issue、补丁和 Pull Request
+
+该许可证禁止：
+
+- 将 LightC 或其修改版本作为独立产品发布
+- 改名、换标、二次打包或发布非官方版本
+- 销售、出租、托管、再许可或以其他方式商业化 LightC
+- 将 LightC 作为商业产品、付费服务、捆绑软件或专有发行的一部分再分发
+- 删除、隐藏或修改版权、许可证、作者署名、官方渠道或安全校验相关信息
+
+v2.10.3 之前已经发布的版本仍按其发布时附带的 MIT License 授权；自 v2.10.3 起的新版本适用 LightC Source Available License v1.0。作者保留未来提供 Pro、Enterprise 或其他商业许可版本的权利。
 
 ---
 

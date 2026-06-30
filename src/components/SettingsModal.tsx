@@ -1702,7 +1702,7 @@ function AboutSettings() {
             </a>
           </div> */}
           <div className="flex items-center justify-between">
-            <span className="text-sm text-[var(--text-secondary)]">开源地址</span>
+            <span className="text-sm text-[var(--text-secondary)]">源码地址</span>
             <a
               href="https://github.com/Chunyu33/light-c"
               target="_blank"
@@ -1710,6 +1710,18 @@ function AboutSettings() {
               className="text-sm font-medium text-[var(--brand-green)] hover:opacity-80 flex items-center gap-1"
             >
               GitHub
+              <ExternalLink className="w-3 h-3" />
+            </a>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-[var(--text-secondary)]">源码许可证</span>
+            <a
+              href="https://github.com/Chunyu33/light-c/blob/main/LICENSE"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm font-medium text-[var(--brand-green)] hover:opacity-80 flex items-center gap-1"
+            >
+              Source Available
               <ExternalLink className="w-3 h-3" />
             </a>
           </div>
